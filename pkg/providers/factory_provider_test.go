@@ -1486,6 +1486,59 @@ func TestCreateProviderFromConfig_UserAgent(t *testing.T) {
 	}
 }
 
+func TestCreateProviderFromConfig_SessionHeader(t *testing.T) {
+	var gotSession, gotUA string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotSession = r.Header.Get("X-Opencode-Session")
+		gotUA = r.Header.Get("User-Agent")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(openaiCompatResponse))
+	}))
+	defer server.Close()
+
+	cfg := &config.ModelConfig{
+		ModelName:     "test-session-header",
+		Model:         "openai/gpt-4o",
+		APIBase:       server.URL,
+		SessionHeader: "x-opencode-session",
+	}
+	cfg.SetAPIKey("test-key")
+
+	provider, modelID, err := CreateProviderFromConfig(cfg)
+	if err != nil {
+		t.Fatalf("CreateProviderFromConfig() error = %v", err)
+	}
+
+	_, err = provider.Chat(
+		t.Context(),
+		[]Message{{Role: "user", Content: "hi"}},
+		nil,
+		modelID,
+		map[string]any{"session_id": "telegram:12345"},
+	)
+	if err != nil {
+		t.Fatalf("Chat() error = %v", err)
+	}
+
+	if gotSession != "telegram:12345" {
+		t.Errorf("X-Opencode-Session = %q, want %q", gotSession, "telegram:12345")
+	}
+	if gotUA != "PicoClaw/"+config.Version {
+		t.Errorf("User-Agent = %q, want default %q", gotUA, "PicoClaw/"+config.Version)
+	}
+}
+
+func TestModelConfig_Validate_SessionHeader(t *testing.T) {
+	valid := &config.ModelConfig{ModelName: "m", Model: "openai/gpt-4o", SessionHeader: "x-opencode-session"}
+	if err := valid.Validate(); err != nil {
+		t.Errorf("Validate() with valid header name error = %v", err)
+	}
+	invalid := &config.ModelConfig{ModelName: "m", Model: "openai/gpt-4o", SessionHeader: "bad header\n"}
+	if err := invalid.Validate(); err == nil {
+		t.Error("Validate() with whitespace in session_header: want error, got nil")
+	}
+}
+
 func TestCreateProviderFromConfig_Bedrock(t *testing.T) {
 	// Set dummy AWS env vars to make test deterministic
 	t.Setenv("AWS_ACCESS_KEY_ID", "test-key")

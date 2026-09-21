@@ -1473,6 +1473,109 @@ func TestProviderChatStream_CustomHeadersInjected(t *testing.T) {
 	}
 }
 
+func TestProviderChat_SessionHeader(t *testing.T) {
+	var gotSession string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotSession = r.Header.Get("X-Opencode-Session")
+		resp := map[string]any{
+			"choices": []map[string]any{
+				{
+					"message":       map[string]any{"content": "ok"},
+					"finish_reason": "stop",
+				},
+			},
+		}
+		w.Header().Set("Content-Type", "application/json")
+		json.NewEncoder(w).Encode(resp)
+	}))
+	defer server.Close()
+
+	newProvider := func(opts ...Option) *Provider {
+		base := []Option{WithUserAgent("PicoClaw/Test")}
+		return NewProvider("key", server.URL, "", append(base, opts...)...)
+	}
+
+	chat := func(p *Provider, options map[string]any) {
+		t.Helper()
+		if _, err := p.Chat(t.Context(), []Message{{Role: "user", Content: "hi"}}, nil, "gpt-4o", options); err != nil {
+			t.Fatalf("Chat() error = %v", err)
+		}
+	}
+
+	// Enabled with a session ID: header is sent.
+	p := newProvider(WithSessionHeader("x-opencode-session"))
+	chat(p, map[string]any{"session_id": "telegram:12345"})
+	if gotSession != "telegram:12345" {
+		t.Fatalf("X-Opencode-Session = %q, want %q", gotSession, "telegram:12345")
+	}
+
+	// Missing or blank session ID: no header.
+	gotSession = ""
+	chat(p, nil)
+	if gotSession != "" {
+		t.Fatalf("X-Opencode-Session = %q, want empty for nil options", gotSession)
+	}
+	chat(p, map[string]any{"session_id": "   "})
+	if gotSession != "" {
+		t.Fatalf("X-Opencode-Session = %q, want empty for blank session_id", gotSession)
+	}
+
+	// Disabled: no header even with a session ID.
+	gotSession = ""
+	chat(newProvider(), map[string]any{"session_id": "telegram:12345"})
+	if gotSession != "" {
+		t.Fatalf("X-Opencode-Session = %q, want empty when disabled", gotSession)
+	}
+
+	// Dynamic session header wins over a same-named static custom header.
+	gotSession = ""
+	chat(newProvider(
+		WithCustomHeaders(map[string]string{"x-opencode-session": "static"}),
+		WithSessionHeader("x-opencode-session"),
+	), map[string]any{"session_id": "telegram:12345"})
+	if gotSession != "telegram:12345" {
+		t.Fatalf("X-Opencode-Session = %q, want dynamic value %q", gotSession, "telegram:12345")
+	}
+}
+
+func TestProviderChatStream_SessionHeader(t *testing.T) {
+	var gotSession string
+
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotSession = r.Header.Get("X-Opencode-Session")
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = w.Write([]byte("data: {\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\n"))
+		_, _ = w.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+
+	p := NewProvider(
+		"key",
+		server.URL,
+		"",
+		WithSessionHeader("x-opencode-session"),
+	)
+
+	out, err := p.ChatStream(
+		t.Context(),
+		[]Message{{Role: "user", Content: "hi"}},
+		nil,
+		"gpt-4o",
+		map[string]any{"session_id": "pico:session-1"},
+		nil,
+	)
+	if err != nil {
+		t.Fatalf("ChatStream() error = %v", err)
+	}
+	if out.Content != "ok" {
+		t.Fatalf("Content = %q, want %q", out.Content, "ok")
+	}
+	if gotSession != "pico:session-1" {
+		t.Fatalf("X-Opencode-Session = %q, want %q", gotSession, "pico:session-1")
+	}
+}
+
 func TestProviderChatStream_ParsesReasoningContent(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "text/event-stream")

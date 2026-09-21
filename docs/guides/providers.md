@@ -133,6 +133,7 @@ This design also enables **multi-agent support** with flexible provider selectio
 | `tool_schema_transform` | string | No | Optional compatibility transform for tool parameter schemas. Default: disabled. Supported values: `simple`.                                                                                             |
 | `extra_body` | object | No | Additional fields to inject into every request body                                                                                                                                                                                         |
 | `custom_headers` | object | No | Additional HTTP headers to inject into every request (e.g., `{"X-Source":"coding-plan"}`). If a key matches a built-in header, the custom value overrides the built-in one (e.g., `Authorization`, `User-Agent`, `Content-Type`, `Accept`). |
+| `session_header` | string | No | Header name for a per-conversation session ID (OpenAI-compatible providers only, e.g. `"x-opencode-session"`). When set, every request includes the header with the stable session key of the active conversation, which lets relays like OpenCode Go optimize routing and prompt caching. Empty disables the feature. Takes precedence over a same-named entry in `custom_headers`. |
 | `streaming.enabled` | bool | No | Opt-in for provider streaming on this model entry. Defaults to `false` and also requires the active channel's `settings.streaming.enabled` to be `true`. |
 | `rpm` | int | No | Per-minute request rate limit                                                                                                                                                                                                               |
 | `fallbacks` | string[] | No | Fallback model names for automatic failover                                                                                                                                                                                                 |
@@ -398,6 +399,26 @@ With explicit `provider`, PicoClaw sends `openai/gpt-oss-20b` unchanged to the L
 ```
 
 With explicit `provider`, PicoClaw sends `model` unchanged. That means `"provider": "litellm", "model": "lite-gpt4"` sends `lite-gpt4`, while `"provider": "litellm", "model": "openai/gpt-4o"` sends `openai/gpt-4o`. The legacy compatibility forms `litellm/lite-gpt4` and `litellm/openai/gpt-4o` still resolve the same way when `provider` is omitted.
+
+**OpenCode Go (per-conversation session header)**
+
+OpenCode Go expects a stable session ID per conversation in the `x-opencode-session`
+header so it can optimize routing and prompt caching:
+
+```json
+{
+  "model_name": "opencode-go",
+  "provider": "openai",
+  "model": "glm-5.3-flash",
+  "api_base": "https://opencode.ai/zen/go/v1",
+  "api_keys": ["sk-..."],
+  "session_header": "x-opencode-session"
+}
+```
+
+The header value is PicoClaw's stable session key for the active conversation
+(e.g. `telegram:12345`), so requests from the same conversation share one
+session ID. See also `session_header` in the model options table above.
 
 **Z.AI Coding Plan**
 

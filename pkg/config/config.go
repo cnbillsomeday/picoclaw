@@ -817,6 +817,12 @@ type ModelConfig struct {
 	// UserAgent is the user agent string to use for HTTP requests.
 	UserAgent string `json:"user_agent,omitempty" yaml:"-"`
 
+	// SessionHeader enables a per-conversation session ID header on every HTTP
+	// request sent to this model. The value is the header name to use (for
+	// example "x-opencode-session"); empty disables the feature. The header
+	// value is the stable PicoClaw session key for the active conversation.
+	SessionHeader string `json:"session_header,omitempty" yaml:"-"`
+
 	// isVirtual marks this model as a virtual model generated from multi-key expansion.
 	// Virtual models should not be persisted to config files.
 	isVirtual bool
@@ -860,6 +866,11 @@ func (c *ModelConfig) Validate() error {
 	// Reject consecutive slashes
 	if strings.Contains(c.Model, "//") {
 		return fmt.Errorf("model identifier must not contain //")
+	}
+
+	// Session header must be a valid header name (no whitespace)
+	if c.SessionHeader != "" && strings.ContainsAny(c.SessionHeader, " \t\r\n") {
+		return fmt.Errorf("session_header must not contain whitespace")
 	}
 	return nil
 }

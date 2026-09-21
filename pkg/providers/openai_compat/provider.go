@@ -37,6 +37,7 @@ type Provider struct {
 	apiKey         string
 	apiBase        string
 	providerName   string
+	sessionHeader  string // Header name for per-conversation session ID; empty = disabled
 	maxTokensField string // Field name for max tokens (e.g., "max_completion_tokens" for o1/glm models)
 	httpClient     *http.Client
 	extraBody      map[string]any // Additional fields to inject into request body
@@ -80,6 +81,16 @@ func WithMaxTokensField(maxTokensField string) Option {
 func WithUserAgent(userAgent string) Option {
 	return func(p *Provider) {
 		p.userAgent = userAgent
+	}
+}
+
+// WithSessionHeader enables a per-conversation session ID header. The
+// configured name is used as the header name (e.g. "x-opencode-session") and
+// the value is read from options["session_id"] on every request. An empty
+// name disables the feature.
+func WithSessionHeader(name string) Option {
+	return func(p *Provider) {
+		p.sessionHeader = strings.TrimSpace(name)
 	}
 }
 
@@ -332,6 +343,21 @@ func (p *Provider) applyCustomHeaders(req *http.Request) {
 	}
 }
 
+// applySessionHeader sets the configured session header to the conversation's
+// stable session ID when present in options. Called after applyCustomHeaders
+// so the dynamic per-conversation value wins over a same-named static entry.
+func (p *Provider) applySessionHeader(req *http.Request, options map[string]any) {
+	if p.sessionHeader == "" {
+		return
+	}
+	sessionID, _ := options["session_id"].(string)
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return
+	}
+	req.Header.Set(p.sessionHeader, sessionID)
+}
+
 func (p *Provider) SetProviderName(providerName string) {
 	p.providerName = strings.ToLower(strings.TrimSpace(providerName))
 }
@@ -488,6 +514,7 @@ func (p *Provider) Chat(
 		req.Header.Set("Authorization", "Bearer "+p.apiKey)
 	}
 	p.applyCustomHeaders(req)
+	p.applySessionHeader(req, options)
 
 	resp, err := p.httpClient.Do(req)
 	if err != nil {
@@ -560,6 +587,7 @@ func (p *Provider) ChatStreamEvents(
 		req.Header.Set("Authorization", "Bearer "+p.apiKey)
 	}
 	p.applyCustomHeaders(req)
+	p.applySessionHeader(req, options)
 
 	// Use a client without Timeout for streaming — the http.Client.Timeout covers
 	// the entire request lifecycle including body reads, which would kill long streams.
