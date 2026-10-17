@@ -1507,6 +1507,68 @@ func TestHandleUpdateModel_CustomHeadersPreserveAndClear(t *testing.T) {
 	}
 }
 
+func TestHandleUpdateModel_SessionHeaderPreserveAndClear(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	cfg.ModelList = []*config.ModelConfig{{
+		ModelName:     "editable",
+		Model:         "openai/gpt-4o-mini",
+		APIKeys:       config.SimpleSecureStrings("sk-existing"),
+		SessionHeader: "x-opencode-session",
+	}}
+	err = config.SaveConfig(configPath, cfg)
+	if err != nil {
+		t.Fatalf("SaveConfig() error = %v", err)
+	}
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	put := func(t *testing.T, body string) {
+		t.Helper()
+		req := httptest.NewRequest(http.MethodPut, "/api/models/0", bytes.NewBufferString(body))
+		req.Header.Set("Content-Type", "application/json")
+		rec := httptest.NewRecorder()
+		mux.ServeHTTP(rec, req)
+		if rec.Code != http.StatusOK {
+			t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+		}
+	}
+	sessionHeaderAfter := func(t *testing.T) string {
+		t.Helper()
+		after, err := config.LoadConfig(configPath)
+		if err != nil {
+			t.Fatalf("LoadConfig() error = %v", err)
+		}
+		return after.ModelList[0].SessionHeader
+	}
+
+	// Omitted session_header should preserve the existing value (the Web UI
+	// does not send this field yet).
+	put(t, `{"model_name":"editable","model":"openai/gpt-4o-mini"}`)
+	if got := sessionHeaderAfter(t); got != "x-opencode-session" {
+		t.Fatalf("preserved session_header = %q, want %q", got, "x-opencode-session")
+	}
+
+	// Explicit empty string should clear it.
+	put(t, `{"model_name":"editable","model":"openai/gpt-4o-mini","session_header":""}`)
+	if got := sessionHeaderAfter(t); got != "" {
+		t.Fatalf("cleared session_header = %q, want empty", got)
+	}
+
+	// Explicit new value should be stored as-is.
+	put(t, `{"model_name":"editable","model":"openai/gpt-4o-mini","session_header":"x-custom-session"}`)
+	if got := sessionHeaderAfter(t); got != "x-custom-session" {
+		t.Fatalf("updated session_header = %q, want %q", got, "x-custom-session")
+	}
+}
+
 func TestHandleUpdateModel_ToolSchemaTransformPreserveAndClear(t *testing.T) {
 	configPath, cleanup := setupOAuthTestEnv(t)
 	defer cleanup()
