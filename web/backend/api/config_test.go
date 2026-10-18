@@ -338,6 +338,57 @@ func TestHandlePatchConfig_SavesChannelListSettingsPatch(t *testing.T) {
 	}
 }
 
+func TestHandlePatchConfig_RoutingSettings(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	req := httptest.NewRequest(http.MethodPatch, "/api/config", bytes.NewBufferString(`{
+		"agents": {
+			"defaults": {
+				"routing": {
+					"enabled": true,
+					"light_model": "flash-light",
+					"threshold": 0.4
+				}
+			}
+		}
+	}`))
+	req.Header.Set("Content-Type", "application/json")
+
+	rec := httptest.NewRecorder()
+	mux.ServeHTTP(rec, req)
+	if rec.Code != http.StatusOK {
+		t.Fatalf(
+			"PATCH /api/config status = %d, want %d, body=%s",
+			rec.Code,
+			http.StatusOK,
+			rec.Body.String(),
+		)
+	}
+
+	cfg, err := config.LoadConfig(configPath)
+	if err != nil {
+		t.Fatalf("LoadConfig() error = %v", err)
+	}
+	if cfg.Agents.Defaults.Routing == nil {
+		t.Fatal("agents.defaults.routing should be set after PATCH")
+	}
+	rc := cfg.Agents.Defaults.Routing
+	if !rc.Enabled {
+		t.Fatal("routing should be enabled after PATCH")
+	}
+	if rc.LightModel != "flash-light" {
+		t.Fatalf("routing light_model = %q, want %q", rc.LightModel, "flash-light")
+	}
+	if rc.Threshold != 0.4 {
+		t.Fatalf("routing threshold = %v, want 0.4", rc.Threshold)
+	}
+}
+
 func TestHandlePatchConfig_NormalizesStringChannelArrayFields(t *testing.T) {
 	configPath, cleanup := setupOAuthTestEnv(t)
 	defer cleanup()

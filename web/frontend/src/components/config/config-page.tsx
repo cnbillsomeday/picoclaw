@@ -7,6 +7,7 @@ import { toast } from "sonner"
 
 import { patchAppConfig, resetAppConfig } from "@/api/channels"
 import { launcherFetch } from "@/api/http"
+import { getModels } from "@/api/models"
 import { postLauncherDashboardSetup } from "@/api/launcher-auth"
 import {
   getAutoStartStatus,
@@ -142,6 +143,15 @@ export function ConfigPage() {
     queryFn: getSystemVersionInfo,
     staleTime: 5 * 60 * 1000,
   })
+
+  const { data: modelsData } = useQuery({
+    queryKey: ["models"],
+    queryFn: getModels,
+    staleTime: 60 * 1000,
+  })
+  const modelNames = (modelsData?.models ?? [])
+    .filter((m) => !m.is_virtual)
+    .map((m) => m.model_name)
 
   const {
     data: autoStartStatus,
@@ -358,6 +368,14 @@ export function ConfigPage() {
           { min: 1, max: 100 },
         )
         const turnProfile = buildTurnProfilePatch(form.turnProfile)
+        const routingThreshold = parseFloatField(
+          form.routingThreshold,
+          "Routing threshold",
+          { min: 0, max: 1 },
+        )
+        if (form.routingEnabled && !form.routingLightModel.trim()) {
+          throw new Error(t("pages.config.routing_light_model_required"))
+        }
         const heartbeatInterval = parseIntField(
           form.heartbeatInterval,
           "Heartbeat interval",
@@ -592,6 +610,11 @@ export function ConfigPage() {
               max_tool_iterations: maxToolIterations,
               summarize_message_threshold: summarizeMessageThreshold,
               summarize_token_percent: summarizeTokenPercent,
+              routing: {
+                enabled: form.routingEnabled,
+                light_model: form.routingLightModel.trim(),
+                threshold: routingThreshold,
+              },
               turn_profile: turnProfile,
             },
           },
@@ -816,6 +839,7 @@ export function ConfigPage() {
                 form={form}
                 onFieldChange={updateField}
                 onTurnProfileFieldChange={handleTurnProfileFieldChange}
+                modelNames={modelNames}
               />
 
               <RuntimeSection form={form} onFieldChange={updateField} />

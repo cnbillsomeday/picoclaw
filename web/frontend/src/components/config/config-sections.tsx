@@ -72,12 +72,14 @@ interface AgentDefaultsSectionProps {
     key: K,
     value: TurnProfileForm[K],
   ) => void
+  modelNames?: string[]
 }
 
 export function AgentDefaultsSection({
   form,
   onFieldChange,
   onTurnProfileFieldChange,
+  modelNames,
 }: AgentDefaultsSectionProps) {
   const { t } = useTranslation()
   const renderModeSelect = ({
@@ -178,6 +180,59 @@ export function AgentDefaultsSection({
             value={form.toolFeedbackMaxArgsLength}
             onChange={(e) =>
               onFieldChange("toolFeedbackMaxArgsLength", e.target.value)
+            }
+          />
+        </Field>
+      )}
+
+      <SwitchCardField
+        label={t("pages.config.routing_enabled")}
+        hint={t("pages.config.routing_enabled_hint")}
+        layout="setting-row"
+        checked={form.routingEnabled}
+        onCheckedChange={(checked) => onFieldChange("routingEnabled", checked)}
+      />
+
+      {form.routingEnabled && (
+        <Field
+          label={t("pages.config.routing_light_model")}
+          hint={t("pages.config.routing_light_model_hint")}
+          layout="setting-row"
+        >
+          <Select
+            value={form.routingLightModel}
+            onValueChange={(next) => onFieldChange("routingLightModel", next)}
+          >
+            <SelectTrigger className="h-9">
+              <SelectValue
+                placeholder={t("pages.config.routing_light_model")}
+              />
+            </SelectTrigger>
+            <SelectContent>
+              {(modelNames ?? []).map((name) => (
+                <SelectItem key={name} value={name}>
+                  {name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+      )}
+
+      {form.routingEnabled && (
+        <Field
+          label={t("pages.config.routing_threshold")}
+          hint={t("pages.config.routing_threshold_hint")}
+          layout="setting-row"
+        >
+          <Input
+            type="number"
+            min={0}
+            max={1}
+            step={0.05}
+            value={form.routingThreshold}
+            onChange={(e) =>
+              onFieldChange("routingThreshold", e.target.value)
             }
           />
         </Field>
