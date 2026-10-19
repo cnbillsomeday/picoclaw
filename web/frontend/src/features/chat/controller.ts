@@ -330,9 +330,20 @@ export function sendChatMessage({
   }
 
   const normalizedContent = content.trim()
-  const normalizedAttachments = attachments
-    .filter((attachment) => attachment.type === "image" && attachment.url)
-    .map((attachment) => ({ ...attachment }))
+  const normalizedAttachments = attachments.filter(
+    (attachment) =>
+      attachment.filename !== undefined ||
+      (attachment.type === "image" && attachment.url),
+  )
+  const imageAttachments = normalizedAttachments.filter(
+    (attachment) => attachment.type === "image" && attachment.url,
+  )
+  const fileAttachments = normalizedAttachments.filter(
+    (attachment) =>
+      attachment.type === "file" &&
+      typeof attachment.text === "string" &&
+      attachment.text.trim() !== "",
+  )
 
   if (!normalizedContent && normalizedAttachments.length === 0) {
     return false
@@ -359,7 +370,15 @@ export function sendChatMessage({
   try {
     const payload: Record<string, unknown> = {
       content: normalizedContent,
-      media: normalizedAttachments.map((attachment) => attachment.url),
+      media: imageAttachments.map((attachment) => attachment.url),
+    }
+    if (fileAttachments.length > 0) {
+      payload.attachments = fileAttachments.map((attachment) => ({
+        type: "file",
+        filename: attachment.filename ?? "",
+        content_type: attachment.contentType ?? "text/plain",
+        text: attachment.text,
+      }))
     }
 
     socket.send(

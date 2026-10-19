@@ -1195,6 +1195,16 @@ func (c *PicoChannel) handleMessage(pc *picoConn, msg PicoMessage) {
 // handleMessageSend processes an inbound message.send from a client.
 func (c *PicoChannel) handleMessageSend(pc *picoConn, msg PicoMessage) {
 	content, _ := msg.Payload["content"].(string)
+	fileBlocks, err := parseInlineFileBlocks(msg.Payload)
+	if err != nil {
+		errMsg := newErrorWithPayload("invalid_attachment", err.Error(), map[string]any{
+			"request_id": msg.ID,
+		})
+		pc.writeJSON(errMsg)
+		return
+	}
+	content = appendInlineFileBlocks(content, fileBlocks)
+
 	media, err := parseInlineImageMedia(msg.Payload)
 	if err != nil {
 		errMsg := newErrorWithPayload("invalid_media", err.Error(), map[string]any{
@@ -1411,6 +1421,120 @@ func validateInlineImageDataURL(mediaURL string) error {
 	}
 
 	return nil
+}
+
+// maxInlineFileBlocks caps how many text file attachments a single inbound
+// message may carry; maxInlineFileChars caps the text of each file so an
+// oversized upload cannot dominate the agent conversation context.
+const (
+	maxInlineFileBlocks = 8
+	maxInlineFileChars  = 65536
+)
+
+type inlineFileBlock struct {
+	filename    string
+	contentType string
+	text        string
+}
+
+// parseInlineFileBlocks extracts text-based file attachments (type "file"
+// carrying inline text) from an inbound payload. Images keep flowing through
+// parseInlineImageMedia; non-file entries are ignored.
+func parseInlineFileBlocks(payload map[string]any) ([]inlineFileBlock, error) {
+	raw, ok := payload["attachments"].([]any)
+	if !ok {
+		return nil, nil
+	}
+
+	blocks := make([]inlineFileBlock, 0, len(raw))
+	for i, item := range raw {
+		attachment, ok := item.(map[string]any)
+		if !ok {
+			return nil, fmt.Errorf("attachments[%d]: attachment must be an object", i)
+		}
+
+		attachmentType, _ := attachment["type"].(string)
+		attachmentType = strings.ToLower(strings.TrimSpace(attachmentType))
+		if attachmentType != "" && attachmentType != "file" {
+			continue
+		}
+
+		text, _ := attachment["text"].(string)
+		if strings.TrimSpace(text) == "" {
+			return nil, fmt.Errorf("attachments[%d]: file attachment requires text", i)
+		}
+
+		filename, _ := attachment["filename"].(string)
+		contentType, _ := attachment["content_type"].(string)
+		if strings.TrimSpace(contentType) == "" {
+			contentType = "text/plain"
+		}
+
+		blocks = append(blocks, inlineFileBlock{
+			filename:    sanitizeInlineFileFilename(filename, len(blocks)),
+			contentType: strings.TrimSpace(contentType),
+			text:        truncateInlineFileText(text),
+		})
+		if len(blocks) >= maxInlineFileBlocks {
+			break
+		}
+	}
+	if len(blocks) == 0 {
+		return nil, nil
+	}
+	return blocks, nil
+}
+
+// sanitizeInlineFileFilename keeps a short, single-line display name.
+func sanitizeInlineFileFilename(name string, index int) string {
+	name = strings.Map(func(r rune) rune {
+		switch r {
+		case '\n', '\r', '\t':
+			return ' '
+		}
+		return r
+	}, strings.TrimSpace(name))
+	if cut := strings.LastIndexAny(name, "/\\"); cut >= 0 {
+		name = name[cut+1:]
+	}
+	if name == "" {
+		name = fmt.Sprintf("file-%d", index+1)
+	}
+	if runes := []rune(name); len(runes) > 120 {
+		name = string(runes[:120])
+	}
+	return name
+}
+
+// truncateInlineFileText caps inline file text with an explicit marker so the
+// model knows the document was shortened.
+func truncateInlineFileText(text string) string {
+	runes := []rune(text)
+	if len(runes) <= maxInlineFileChars {
+		return text
+	}
+	return string(runes[:maxInlineFileChars]) +
+		"\n\n[... truncated by picoclaw: inline file text limit reached ...]"
+}
+
+// appendInlineFileBlocks renders each text file as a fenced section appended
+// to the user message, so the file content reaches the model on every
+// provider without native file-upload support.
+func appendInlineFileBlocks(content string, blocks []inlineFileBlock) string {
+	if len(blocks) == 0 {
+		return content
+	}
+
+	var builder strings.Builder
+	builder.WriteString(content)
+	for _, block := range blocks {
+		if builder.Len() > 0 {
+			builder.WriteString("\n\n")
+		}
+		fmt.Fprintf(&builder, "--- Attached file: %s (%s) ---\n%s\n--- End of %s ---",
+			block.filename, block.contentType, block.text, block.filename)
+	}
+	return builder.String()
 }
 
 // setContextUsagePayload adds context window usage stats to a pico payload.

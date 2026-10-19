@@ -69,6 +69,132 @@ func TestHandleMessageSend_ForwardsMessageMetadata(t *testing.T) {
 	}
 }
 
+func TestHandleMessageSend_IncludesTextFileBlocks(t *testing.T) {
+	msgBus := bus.NewMessageBus()
+	bc := &config.Channel{Type: config.ChannelPico, Enabled: true}
+	cfg := &config.PicoSettings{}
+	cfg.SetToken("test-token")
+	ch, err := NewPicoChannel(bc, cfg, msgBus)
+	if err != nil {
+		t.Fatalf("NewPicoChannel: %v", err)
+	}
+	ch.ctx = context.Background()
+
+	ch.handleMessageSend(&picoConn{id: "conn-1", sessionID: "sess-1"}, PicoMessage{
+		Type:      TypeMessageSend,
+		ID:        "msg-2",
+		SessionID: "sess-1",
+		Payload: map[string]any{
+			PayloadKeyContent: "check this",
+			"attachments": []any{
+				map[string]any{
+					"type":     "image",
+					"url":      "data:image/png;base64,iVBORw0KGgo=",
+					"filename": "pic.png",
+				},
+				map[string]any{
+					"type":         "file",
+					"filename":     "notes.md",
+					"content_type": "text/markdown",
+					"text":         "# hello",
+				},
+			},
+		},
+	})
+
+	select {
+	case inbound := <-msgBus.InboundChan():
+		want := "check this\n\n--- Attached file: notes.md (text/markdown) ---\n# hello\n--- End of notes.md ---"
+		if inbound.Content != want {
+			t.Fatalf("content = %q, want %q", inbound.Content, want)
+		}
+		if len(inbound.Media) != 1 || inbound.Media[0] != "data:image/png;base64,iVBORw0KGgo=" {
+			t.Fatalf("media = %v, want single image data URL", inbound.Media)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("expected inbound pico message")
+	}
+}
+
+func TestParseInlineFileBlocks_SkipsNonFileEntries(t *testing.T) {
+	blocks, err := parseInlineFileBlocks(map[string]any{
+		"attachments": []any{
+			map[string]any{"type": "image", "url": "data:image/png;base64,AAAA"},
+			map[string]any{"type": "file", "filename": "a.txt", "content_type": "text/plain", "text": "hi"},
+			map[string]any{"type": "audio", "url": "data:audio/wav;base64,AAAA"},
+		},
+	})
+	if err != nil {
+		t.Fatalf("parseInlineFileBlocks: %v", err)
+	}
+	if len(blocks) != 1 || blocks[0].filename != "a.txt" || blocks[0].text != "hi" {
+		t.Fatalf("blocks = %+v, want one file block", blocks)
+	}
+}
+
+func TestParseInlineFileBlocks_RequiresFileText(t *testing.T) {
+	_, err := parseInlineFileBlocks(map[string]any{
+		"attachments": []any{
+			map[string]any{"type": "file", "filename": "a.bin"},
+		},
+	})
+	if err == nil || !strings.Contains(err.Error(), "requires text") {
+		t.Fatalf("err = %v, want file attachment text error", err)
+	}
+}
+
+func TestParseInlineFileBlocks_RejectsNonObjectEntries(t *testing.T) {
+	_, err := parseInlineFileBlocks(map[string]any{
+		"attachments": []any{"not-an-object"},
+	})
+	if err == nil || !strings.Contains(err.Error(), "must be an object") {
+		t.Fatalf("err = %v, want object shape error", err)
+	}
+}
+
+func TestParseInlineFileBlocks_CapsBlockCountAndSanitizesName(t *testing.T) {
+	attachments := make([]any, 0, maxInlineFileBlocks+2)
+	for i := 0; i < maxInlineFileBlocks+2; i++ {
+		attachments = append(attachments, map[string]any{
+			"type":     "file",
+			"filename": fmt.Sprintf("..\\/dir-%d\nfile%d.txt", i, i),
+			"text":     fmt.Sprintf("content-%d", i),
+		})
+	}
+	blocks, err := parseInlineFileBlocks(map[string]any{"attachments": attachments})
+	if err != nil {
+		t.Fatalf("parseInlineFileBlocks: %v", err)
+	}
+	if len(blocks) != maxInlineFileBlocks {
+		t.Fatalf("len(blocks) = %d, want %d", len(blocks), maxInlineFileBlocks)
+	}
+	if name := blocks[0].filename; strings.ContainsAny(name, "\n\r\\/") {
+		t.Fatalf("filename = %q, want path separators flattened", name)
+	}
+	if blocks[0].text != "content-0" {
+		t.Fatalf("text = %q, want content-0", blocks[0].text)
+	}
+}
+
+func TestAppendInlineFileBlocks_TruncatesOversizedText(t *testing.T) {
+	oversized := strings.Repeat("字", maxInlineFileChars+10)
+	content := appendInlineFileBlocks("", []inlineFileBlock{
+		{filename: "big.log", contentType: "text/plain", text: truncateInlineFileText(oversized)},
+	})
+	if got := strings.Count(content, "字"); got != maxInlineFileChars {
+		t.Fatalf("truncated rune count = %d, want %d", got, maxInlineFileChars)
+	}
+	if !strings.Contains(content, "inline file text limit reached") {
+		t.Fatal("missing truncation marker")
+	}
+	if !strings.HasPrefix(content, "--- Attached file: big.log (text/plain) ---\n") {
+		t.Fatalf("content = %q", content[:120])
+	}
+	if !strings.HasSuffix(content, "--- End of big.log ---") {
+		t.Fatal("missing end fence")
+	}
+}
+
 func TestFinalizeTrackedToolFeedbackMessage_StopsTrackingBeforeEdit(t *testing.T) {
 	ch := &PicoChannel{
 		progress: channels.NewToolFeedbackAnimator(nil),
