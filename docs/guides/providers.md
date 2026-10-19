@@ -417,8 +417,31 @@ header so it can optimize routing and prompt caching:
 ```
 
 The header value is PicoClaw's stable session key for the active conversation
-(e.g. `telegram:12345`), so requests from the same conversation share one
-session ID. See also `session_header` in the model options table above.
+(`sk_v1_<sha256>` derived from the agent, channel, account and chat — stable
+across restarts, distinct per conversation and per Telegram topic), so requests
+from the same conversation share one session ID. See also `session_header` in
+the model options table above.
+
+**Inline thinking tags (inline reasoning blocks)**
+
+Reasoning models served through OpenAI-compatible relays (DeepSeek R1 distills,
+Qwen3, MiMo, ...) sometimes fold their chain of thought into the assistant
+content between inline reasoning tags instead of the structured
+`reasoning_content` field. For OpenAI-compatible providers PicoClaw strips
+these blocks automatically:
+
+- Paired blocks are removed from replies and the captured text is routed into
+  the reasoning payload, so it behaves like regular chain of thought: it goes
+  to the separate reasoning channel (never into the chat body) and is dropped
+  entirely when `thinking_level` is `"off"`.
+- Streams are filtered per snapshot, so in-progress thought text and
+  half-received tags are never shown while the model is still thinking.
+- Accepted spellings: `think`, `thought` and `reasoning` blocks (opening and
+  closing tags of each spelling, with mixed-mirror closes tolerated), plus
+  self-closing think tags, unclosed opening tags (streams truncated
+  mid-thought) and stray closing tags.
+- Content without any inline thinking tags passes through byte-identical;
+  replies are not otherwise rewritten.
 
 **Z.AI Coding Plan**
 

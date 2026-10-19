@@ -526,7 +526,12 @@ func (p *Provider) Chat(
 		return nil, common.HandleErrorResponse(resp, p.apiBase)
 	}
 
-	return common.ReadAndParseResponse(resp, p.apiBase)
+	out, err := common.ReadAndParseResponse(resp, p.apiBase)
+	if err != nil {
+		return nil, err
+	}
+	out.Content, out.ReasoningContent = applyInlineThinkSplit(out.Content, out.ReasoningContent)
+	return out, nil
 }
 
 // ChatStream implements streaming via OpenAI-compatible SSE (stream: true).
@@ -720,10 +725,13 @@ func parseStreamResponse(
 		}
 		// Accumulate text content after reasoning so UIs can show thought first
 		// when a provider sends both fields in the same event.
+		// Inline think tags are stripped per snapshot so in-progress
+		// chain-of-thought text is never shown as chat output; the
+		// achieved final split happens below once the stream ends.
 		if choice.Delta.Content != "" {
 			textContent.WriteString(choice.Delta.Content)
 			if onChunk != nil {
-				onChunk(StreamChunk{Content: textContent.String()})
+				onChunk(StreamChunk{Content: cleanStreamingContent(textContent.String())})
 			}
 		}
 
@@ -829,9 +837,10 @@ func parseStreamResponse(
 		finishReason = "stop"
 	}
 
+	finalClean, inlineThink := SplitInlineThink(textContent.String())
 	return &LLMResponse{
-		Content:          textContent.String(),
-		ReasoningContent: reasoningContent.String(),
+		Content:          finalClean,
+		ReasoningContent: joinThinkReasoning(reasoningContent.String(), inlineThink),
 		Reasoning:        reasoning.String(),
 		ReasoningDetails: reasoningDetails,
 		ToolCalls:        toolCalls,
