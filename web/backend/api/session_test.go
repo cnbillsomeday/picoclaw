@@ -296,6 +296,73 @@ func TestHandleGetSession_JSONLStorage(t *testing.T) {
 	}
 }
 
+func TestHandleGetSession_PreservesInlineFileBlockContent(t *testing.T) {
+	configPath, cleanup := setupOAuthTestEnv(t)
+	defer cleanup()
+
+	dir := sessionsTestDir(t, configPath)
+	store, err := memory.NewJSONLStore(dir)
+	if err != nil {
+		t.Fatalf("NewJSONLStore() error = %v", err)
+	}
+
+	// The pico channel (pkg/channels/pico appendInlineFileBlocks) stores
+	// uploaded text files as fenced blocks inside the user message content;
+	// a history reload must round-trip that content verbatim.
+	const fileBlock = "--- Attached file: notes.md (text/markdown) ---\n# hello\n--- End of notes.md ---"
+	userContent := "check this\n\n" + fileBlock
+
+	sessionKey := legacyPicoSessionPrefix + "detail-file-block"
+	if err := store.AddFullMessage(nil, sessionKey, providers.Message{
+		Role:    "user",
+		Content: userContent,
+	}); err != nil {
+		t.Fatalf("AddFullMessage() error = %v", err)
+	}
+
+	h := NewHandler(configPath)
+	mux := http.NewServeMux()
+	h.RegisterRoutes(mux)
+
+	rec := httptest.NewRecorder()
+	req := httptest.NewRequest(http.MethodGet, "/api/sessions/detail-file-block", nil)
+	mux.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d, body=%s", rec.Code, http.StatusOK, rec.Body.String())
+	}
+
+	var resp struct {
+		ID       string `json:"id"`
+		Messages []struct {
+			Role        string `json:"role"`
+			Content     string `json:"content"`
+			Attachments []struct {
+				Type string `json:"type,omitempty"`
+			} `json:"attachments,omitempty"`
+		} `json:"messages"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatalf("Unmarshal() error = %v", err)
+	}
+	if resp.ID != "detail-file-block" {
+		t.Fatalf("resp.ID = %q, want %q", resp.ID, "detail-file-block")
+	}
+	if len(resp.Messages) != 1 {
+		t.Fatalf("len(resp.Messages) = %d, want 1", len(resp.Messages))
+	}
+	first := resp.Messages[0]
+	if first.Role != "user" {
+		t.Fatalf("role = %q, want user", first.Role)
+	}
+	if first.Content != userContent {
+		t.Fatalf("content mutated by history round-trip:\n got %q\nwant %q", first.Content, userContent)
+	}
+	if len(first.Attachments) != 0 {
+		t.Fatalf("attachments = %v, want none for user file-block messages", first.Attachments)
+	}
+}
+
 func TestHandleGetSession_HidesHandledToolAttachmentsBackedByMediaRefs(t *testing.T) {
 	configPath, cleanup := setupOAuthTestEnv(t)
 	defer cleanup()

@@ -1539,6 +1539,68 @@ func TestModelConfig_Validate_SessionHeader(t *testing.T) {
 	}
 }
 
+func TestCreateProviderFromConfig_AnthropicSessionHeader(t *testing.T) {
+	// anthropic-messages and alibaba-coding-anthropic share the same
+	// provider implementation but go through distinct factory branches;
+	// both must honor cfg.SessionHeader end-to-end.
+	for _, protocol := range []string{"anthropic-messages", "alibaba-coding-anthropic"} {
+		t.Run(protocol, func(t *testing.T) {
+			var gotSession string
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotSession = r.Header.Get("X-Opencode-Session")
+				w.Header().Set("Content-Type", "application/json")
+				_, _ = w.Write([]byte(`{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"model":"test","stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`))
+			}))
+			defer server.Close()
+
+			cfg := &config.ModelConfig{
+				ModelName:     "test-" + protocol,
+				Model:         "test-model",
+				Provider:      protocol,
+				APIBase:       server.URL,
+				SessionHeader: "x-opencode-session",
+			}
+			cfg.SetAPIKey("sk-test")
+
+			provider, modelID, err := CreateProviderFromConfig(cfg)
+			if err != nil {
+				t.Fatalf("CreateProviderFromConfig(%s) error = %v", protocol, err)
+			}
+			if modelID != "test-model" {
+				t.Fatalf("modelID = %q, want %q", modelID, "test-model")
+			}
+
+			if _, err = provider.Chat(
+				t.Context(),
+				[]Message{{Role: "user", Content: "hi"}},
+				nil,
+				modelID,
+				map[string]any{"max_tokens": 16, "session_id": "sk_v1_test"},
+			); err != nil {
+				t.Fatalf("Chat() error = %v", err)
+			}
+			if gotSession != "sk_v1_test" {
+				t.Errorf("X-Opencode-Session = %q, want %q", gotSession, "sk_v1_test")
+			}
+
+			// Missing session ID: no header on the wire.
+			gotSession = ""
+			if _, err = provider.Chat(
+				t.Context(),
+				[]Message{{Role: "user", Content: "hi again"}},
+				nil,
+				modelID,
+				map[string]any{"max_tokens": 16},
+			); err != nil {
+				t.Fatalf("Chat() without session_id error = %v", err)
+			}
+			if gotSession != "" {
+				t.Errorf("X-Opencode-Session = %q, want empty when session_id missing", gotSession)
+			}
+		})
+	}
+}
+
 func TestCreateProviderFromConfig_Bedrock(t *testing.T) {
 	// Set dummy AWS env vars to make test deterministic
 	t.Setenv("AWS_ACCESS_KEY_ID", "test-key")
