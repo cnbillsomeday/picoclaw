@@ -372,7 +372,7 @@ func (p *Provider) prepareMessagesForRequest(messages []Message) []Message {
 	}
 
 	if p.requiresToolRoundReasoningReplay() {
-		return filterReasoningReplayMessages(messages)
+		return filterReasoningReplayMessages(messages, p.requiresFullReasoningReplay())
 	}
 	return stripReasoningMessages(messages)
 }
@@ -382,6 +382,16 @@ func (p *Provider) requiresToolRoundReasoningReplay() bool {
 		p.providerName == "mimo" ||
 		isDeepSeekHost(p.apiBase) ||
 		isMiMoHost(p.apiBase)
+}
+
+// requiresFullReasoningReplay reports whether the upstream enforces
+// DeepSeek-style thinking-mode replay: assistant messages carrying
+// reasoning_content must be passed back on follow-up requests — tool
+// rounds and plain turns alike — otherwise the API rejects the request
+// with 400 "The reasoning_content in the thinking mode must be passed
+// back to the API". MiMo keeps the older tool-round-only contract.
+func (p *Provider) requiresFullReasoningReplay() bool {
+	return p.providerName == "deepseek" || isDeepSeekHost(p.apiBase)
 }
 
 func isDeepSeekHost(apiBase string) bool {
@@ -402,7 +412,7 @@ func isMiMoHost(apiBase string) bool {
 	return host == "xiaomimimo.com" || strings.HasSuffix(host, ".xiaomimimo.com")
 }
 
-func filterReasoningReplayMessages(messages []Message) []Message {
+func filterReasoningReplayMessages(messages []Message, keepAllReasoning bool) []Message {
 	out := make([]Message, 0, len(messages))
 	start := 0
 
@@ -410,7 +420,7 @@ func filterReasoningReplayMessages(messages []Message) []Message {
 		if end <= start {
 			return
 		}
-		out = append(out, filterReasoningReplayTurn(messages[start:end])...)
+		out = append(out, filterReasoningReplayTurn(messages[start:end], keepAllReasoning)...)
 		start = end
 	}
 
@@ -424,14 +434,8 @@ func filterReasoningReplayMessages(messages []Message) []Message {
 	return out
 }
 
-func filterReasoningReplayTurn(messages []Message) []Message {
-	hasToolInteraction := false
-	for _, msg := range messages {
-		if msg.Role == "tool" || (msg.Role == "assistant" && len(msg.ToolCalls) > 0) {
-			hasToolInteraction = true
-			break
-		}
-	}
+func filterReasoningReplayTurn(messages []Message, keepAllReasoning bool) []Message {
+	hasToolInteraction := segmentHasToolInteraction(messages)
 
 	out := make([]Message, 0, len(messages))
 	for _, msg := range messages {
@@ -440,11 +444,18 @@ func filterReasoningReplayTurn(messages []Message) []Message {
 		}
 
 		cloned := msg
-		// DeepSeek and MiMo only require reasoning_content replay for turns
-		// that participate in a tool interaction round. For plain assistant
-		// turns between two user messages, the reasoning trace is ignored on
-		// replay, so we strip it here.
-		if cloned.Role == "assistant" && strings.TrimSpace(cloned.ReasoningContent) != "" && !hasToolInteraction {
+		// Reasoning trace policy for thinking-mode providers:
+		//   - DeepSeek (V3.2+, thinking mode) rejects requests whose
+		//     assistant context dropped the reasoning_content — tool
+		//     rounds and plain turns alike — so whatever was captured is
+		//     replayed as-is (keepAllReasoning);
+		//   - MiMo and friends only require replay for turns inside a
+		//     tool interaction round; for plain assistant turns between
+		//     two user messages the reasoning trace is ignored on
+		//     replay, so it is stripped here.
+		if cloned.Role == "assistant" &&
+			strings.TrimSpace(cloned.ReasoningContent) != "" &&
+			!keepAllReasoning && !hasToolInteraction {
 			cloned.ReasoningContent = ""
 		}
 		if assistantMessageEmpty(cloned) {
@@ -454,6 +465,17 @@ func filterReasoningReplayTurn(messages []Message) []Message {
 	}
 
 	return out
+}
+
+// segmentHasToolInteraction reports whether the turn segment contains a
+// tool call exchange (a tool result or an assistant tool-call turn).
+func segmentHasToolInteraction(messages []Message) bool {
+	for _, msg := range messages {
+		if msg.Role == "tool" || (msg.Role == "assistant" && len(msg.ToolCalls) > 0) {
+			return true
+		}
+	}
+	return false
 }
 
 func stripReasoningMessages(messages []Message) []Message {

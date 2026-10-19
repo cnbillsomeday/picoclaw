@@ -459,6 +459,17 @@ these blocks automatically:
 - Content without any inline thinking tags passes through byte-identical;
   replies are not otherwise rewritten.
 
+**DeepSeek thinking-mode reasoning replay**
+
+DeepSeek V3.2+ thinking-mode models enforce a stricter replay contract: when
+the assistant context of a follow-up request drops a `reasoning_content` the
+API already produced, the request fails with 400 "The reasoning_content in
+the thinking mode must be passed back to the API" — for plain turns between
+two user messages as well as tool rounds. For DeepSeek endpoints (provider
+`deepseek` or a `*.deepseek.com` API base) PicoClaw therefore replays every
+captured `reasoning_content` as-is instead of stripping it. MiMo keeps the
+older tool-round-only rule; other providers strip reasoning entirely.
+
 **Z.AI Coding Plan**
 
 If the standard Zhipu endpoint (`https://open.bigmodel.cn/api/paas/v4`) returns 429 (code 1113: insufficient balance), try using the Z.AI Coding Plan endpoint instead:

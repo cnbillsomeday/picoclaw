@@ -564,6 +564,34 @@ func assertAssistantReasoningOmitted(t *testing.T, reqMessages []any, index int,
 	}
 }
 
+// assertDocsReplayRequirementsFull asserts full reasoning replay for the
+// DeepSeek thinking-mode contract: every assistant message that carried
+// reasoning_content — plain turns and tool rounds alike — passes it back.
+func assertDocsReplayRequirementsFull(t *testing.T, reqMessages []any, messages []Message, label string) {
+	t.Helper()
+
+	if len(reqMessages) != len(messages) {
+		t.Fatalf("len(messages) = %d, want %d", len(reqMessages), len(messages))
+	}
+
+	for _, index := range []int{1, 3, 5} {
+		assistantMsg, ok := reqMessages[index].(map[string]any)
+		if !ok {
+			t.Fatalf("assistant message %d is not map[string]any: %T", index, reqMessages[index])
+		}
+		want := messages[index].ReasoningContent
+		if got, _ := assistantMsg["reasoning_content"].(string); got != want {
+			t.Fatalf(
+				"%s assistant message %d reasoning_content = %v, want %q replayed as captured",
+				label,
+				index,
+				assistantMsg["reasoning_content"],
+				want,
+			)
+		}
+	}
+}
+
 func assertDocsReplayRequirements(t *testing.T, reqMessages []any, messages []Message, label string) {
 	t.Helper()
 
@@ -606,7 +634,7 @@ func assertDocsReplayRequirements(t *testing.T, reqMessages []any, messages []Me
 	}
 }
 
-func TestProviderChat_DeepSeekOmitsReasoningContentForNonToolTurnHistory(t *testing.T) {
+func TestProviderChat_DeepSeekKeepsReasoningContentForNonToolTurnHistory(t *testing.T) {
 	reqMessages := runCapturedChat(
 		t,
 		"",
@@ -614,7 +642,16 @@ func TestProviderChat_DeepSeekOmitsReasoningContentForNonToolTurnHistory(t *test
 		nonToolReplayMessages(),
 		"deepseek-v4-flash",
 	)
-	assertAssistantReasoningOmitted(t, reqMessages, 1, "DeepSeek")
+	assistantMsg, ok := reqMessages[1].(map[string]any)
+	if !ok {
+		t.Fatalf("assistant message is not map[string]any: %T", reqMessages[1])
+	}
+	if got, _ := assistantMsg["reasoning_content"].(string); got != "Let me think... 1+1=2" {
+		t.Fatalf(
+			"reasoning_content should be replayed for DeepSeek thinking mode (400 otherwise), got %v",
+			assistantMsg["reasoning_content"],
+		)
+	}
 }
 
 func TestProviderChat_DeepSeekPreservesReasoningContentForToolTurnHistory(t *testing.T) {
@@ -800,9 +837,9 @@ func TestProviderChat_HistoryCanonicalizationMatrix(t *testing.T) {
 			t.Fatalf("len(messages) = %d, want %d", len(msgs), len(baseMessages))
 		}
 
-		if _, ok := msgs[1]["reasoning_content"]; ok {
+		if got, _ := msgs[1]["reasoning_content"].(string); got != "plain thought" {
 			t.Fatalf(
-				"turn1 reasoning_content should be stripped for DeepSeek non-tool turn, got %v",
+				"turn1 reasoning_content = %v, want replayed for DeepSeek thinking mode (API rejects stripped context)",
 				msgs[1]["reasoning_content"],
 			)
 		}
@@ -861,18 +898,18 @@ func TestProviderChat_HistoryCanonicalizationMatrix(t *testing.T) {
 }
 
 func TestProviderChat_DeepSeekDocsReplayRequirements(t *testing.T) {
-	// DeepSeek's thinking-mode and multi-round chat docs distinguish two cases:
-	// - for a plain assistant turn between two user messages without tool calls,
-	//   reasoning_content does not need to be replayed and the API ignores it if sent;
-	// - for a turn that participates in a tool-interaction round, assistant
-	//   reasoning_content must be replayed on subsequent requests.
-	//
-	// Keep this behavior explicit here so future changes do not "fix" the
-	// non-tool stripping based on issue reports that are broader than the
-	// vendor documentation.
+	// DeepSeek's V3.2+ thinking mode enforces a stricter replay contract
+	// than the earlierAPI docs described: when the assistant context drops
+	// a reasoning_content that the API already produced, the request
+	// fails with 400 "The reasoning_content in the thinking mode must be
+	// passed back to the API". This covers plain assistant turns between
+	// two user messages as well as tool-interaction rounds, so DeepSeek
+	// requests replay captured reasoning_content as-is. (The old
+	// "plain turns may omit reasoning" guidance predates V3.2 thinking
+	// mode and is superseded by the live API behavior.)
 	messages := docsReplayRequirementMessages()
 	reqMessages := runCapturedChat(t, "deepseek", "", messages, "deepseek-v4-flash")
-	assertDocsReplayRequirements(t, reqMessages, messages, "DeepSeek")
+	assertDocsReplayRequirementsFull(t, reqMessages, messages, "DeepSeek")
 }
 
 func TestProviderChat_MiMoDocsReplayRequirements(t *testing.T) {
