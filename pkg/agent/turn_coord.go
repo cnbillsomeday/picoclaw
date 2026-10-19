@@ -449,10 +449,16 @@ func (al *AgentLoop) askSideQuestion(
 	activeCandidates, activeModel, usedLight := al.selectCandidates(agent, question, messages)
 	selectedModelName := sideQuestionModelName(agent, usedLight)
 
+	// Keep side-question caching scoped per conversation when available, so it
+	// shares the conversation's prefix-cache bucket instead of the agent-wide one.
+	cacheKey := agent.ID + ":btw"
+	if opts != nil && opts.SessionKey != "" {
+		cacheKey = opts.SessionKey + ":btw"
+	}
 	llmOpts := map[string]any{
 		"max_tokens":       agent.MaxTokens,
 		"temperature":      agent.Temperature,
-		"prompt_cache_key": agent.ID + ":btw",
+		"prompt_cache_key": cacheKey,
 	}
 	if opts != nil {
 		llmOpts["session_id"] = opts.SessionKey

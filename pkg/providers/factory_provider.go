@@ -299,6 +299,7 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 			cfg.RequestTimeout,
 			cfg.ExtraBody,
 			cfg.CustomHeaders,
+			openai_compat.WithSessionHeader(cfg.SessionHeader),
 		)
 		provider.SetProviderName(protocol)
 		return finalizeProviderFromConfig(provider, modelID, cfg)
@@ -312,12 +313,14 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 		if cfg.APIKey() == "" {
 			return nil, "", fmt.Errorf("api_key is required for anthropic-messages protocol (model: %s)", cfg.Model)
 		}
-		return finalizeProviderFromConfig(anthropicmessages.NewProviderWithTimeout(
+		messagesProvider := anthropicmessages.NewProviderWithTimeout(
 			cfg.APIKey(),
 			apiBase,
 			userAgent,
 			cfg.RequestTimeout,
-		), modelID, cfg)
+		)
+		messagesProvider.SetSessionHeader(cfg.SessionHeader)
+		return finalizeProviderFromConfig(messagesProvider, modelID, cfg)
 
 	case "alibaba-coding-anthropic":
 		// Alibaba Coding Plan with Anthropic-compatible API
@@ -328,12 +331,14 @@ func CreateProviderFromConfig(cfg *config.ModelConfig) (LLMProvider, string, err
 		if cfg.APIKey() == "" {
 			return nil, "", fmt.Errorf("api_key is required for %q protocol (model: %s)", protocol, cfg.Model)
 		}
-		return finalizeProviderFromConfig(anthropicmessages.NewProviderWithTimeout(
+		alibabaProvider := anthropicmessages.NewProviderWithTimeout(
 			cfg.APIKey(),
 			apiBase,
 			userAgent,
 			cfg.RequestTimeout,
-		), modelID, cfg)
+		)
+		alibabaProvider.SetSessionHeader(cfg.SessionHeader)
+		return finalizeProviderFromConfig(alibabaProvider, modelID, cfg)
 
 	case "antigravity":
 		return finalizeProviderFromConfig(NewAntigravityProvider(), modelID, cfg)

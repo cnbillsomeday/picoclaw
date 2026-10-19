@@ -8,6 +8,8 @@ package anthropicmessages
 import (
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"reflect"
 	"strings"
 	"testing"
@@ -835,5 +837,48 @@ func TestProviderChatErrors(t *testing.T) {
 				t.Errorf("Chat() error = %q, want %q", err.Error(), tt.wantErrMsg)
 			}
 		})
+	}
+}
+
+func TestProviderChat_SessionHeader(t *testing.T) {
+	var gotSession string
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotSession = r.Header.Get("X-Opencode-Session")
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{"id":"msg_1","type":"message","role":"assistant","content":[{"type":"text","text":"ok"}],"model":"test","stop_reason":"end_turn","usage":{"input_tokens":1,"output_tokens":1}}`))
+	}))
+	defer server.Close()
+
+	messages := []Message{{Role: "user", Content: "hi"}}
+
+	// Enabled with a session ID: header is sent.
+	p := NewProvider("sk-test", server.URL, "")
+	p.SetSessionHeader("x-opencode-session")
+	if _, err := p.Chat(context.Background(), messages, nil, "test-model",
+		map[string]any{"max_tokens": 16, "session_id": "sk_v1_abc123"}); err != nil {
+		t.Fatalf("Chat() error = %v", err)
+	}
+	if gotSession != "sk_v1_abc123" {
+		t.Fatalf("X-Opencode-Session = %q, want %q", gotSession, "sk_v1_abc123")
+	}
+
+	// Missing session ID: no header.
+	gotSession = ""
+	if _, err := p.Chat(context.Background(), messages, nil, "test-model",
+		map[string]any{"max_tokens": 16}); err != nil {
+		t.Fatalf("Chat() error = %v", err)
+	}
+	if gotSession != "" {
+		t.Fatalf("X-Opencode-Session = %q, want empty when session_id missing", gotSession)
+	}
+
+	// Disabled (empty header name): no header even with a session ID.
+	p2 := NewProvider("sk-test", server.URL, "")
+	if _, err := p2.Chat(context.Background(), messages, nil, "test-model",
+		map[string]any{"max_tokens": 16, "session_id": "sk_v1_abc123"}); err != nil {
+		t.Fatalf("Chat() error = %v", err)
+	}
+	if gotSession != "" {
+		t.Fatalf("X-Opencode-Session = %q, want empty when session header disabled", gotSession)
 	}
 }

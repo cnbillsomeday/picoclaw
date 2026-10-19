@@ -103,8 +103,8 @@ func TestBuildMessagesFromPrompt_IncludesSystemPromptOverlay(t *testing.T) {
 	if !strings.Contains(messages[0].Content, "Use child-only system instructions.") {
 		t.Fatalf("system prompt missing overlay: %q", messages[0].Content)
 	}
-	if messages[1].Role != "user" || messages[1].Content != "do child task" {
-		t.Fatalf("messages[1] = %#v, want user task", messages[1])
+	if messages[1].Role != "user" || !strings.HasSuffix(messages[1].Content, "do child task") {
+		t.Fatalf("messages[1] = %#v, want user task after trailing context", messages[1])
 	}
 }
 

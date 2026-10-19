@@ -483,7 +483,9 @@ func (cb *ContextBuilder) EstimateSystemTokens(summary string, activeSkills []st
 	staticPrompt := cb.BuildSystemPromptWithCache()
 
 	// Dynamic context is small and varies per request; use a representative estimate.
-	// Actual buildDynamicContext produces ~200-400 chars of time/runtime/session info.
+	// buildDynamicContext produces ~150-300 chars of runtime/session info, and
+	// buildTrailingContext adds ~100-200 chars of time/sender info to the final
+	// user message (counted with the user turn, not the system prompt).
 	const dynamicContextChars = 300
 
 	totalChars := utf8.RuneCountInString(staticPrompt) + dynamicContextChars
@@ -775,11 +777,21 @@ func (cb *ContextBuilder) LoadBootstrapFiles() string {
 	return sb.String()
 }
 
-// buildDynamicContext returns a short dynamic context string with per-request info.
-// This changes every request (time, session) so it is NOT part of the cached prompt.
+// buildDynamicContext returns a short context string that is stable within a
+// conversation (runtime, channel/chat identity). It is embedded in the system
+// message, which sits BEFORE the conversation history, so anything placed
+// here must not change between turns — otherwise the provider's prefix cache
+// for the entire history is invalidated on every request.
+//
+// Per-turn values (current time, current sender) are deliberately excluded:
+// they go into buildTrailingContext, which is prepended to the final user
+// message — i.e. AFTER the history — keeping the history prefix byte-identical
+// across requests.
+//
 // LLM-side KV cache reuse is achieved by each provider adapter's native mechanism:
 //   - Anthropic: per-block cache_control (ephemeral) on the static SystemParts block
 //   - OpenAI / Codex: prompt_cache_key for prefix-based caching
+//   - OpenCode Go relays: x-opencode-session affinity via the session_header option
 //
 // See: https://docs.anthropic.com/en/docs/build-with-claude/prompt-caching
 // See: https://platform.openai.com/docs/guides/prompt-caching
@@ -799,23 +811,49 @@ func formatCurrentSenderLine(senderID, senderDisplayName string) string {
 	}
 }
 
-func (cb *ContextBuilder) buildDynamicContext(
-	channel, chatID, senderID, senderDisplayName string,
-) string {
-	now := time.Now().Format("2006-01-02 15:04 (Monday)")
+func (cb *ContextBuilder) buildDynamicContext(channel, chatID string) string {
 	rt := fmt.Sprintf("%s %s, Go %s", runtime.GOOS, runtime.GOARCH, runtime.Version())
 
 	var sb strings.Builder
-	fmt.Fprintf(&sb, "## Current Time\n%s\n\n## Runtime\n%s", now, rt)
+	fmt.Fprintf(&sb, "## Runtime\n%s", rt)
 
 	if channel != "" && chatID != "" {
 		fmt.Fprintf(&sb, "\n\n## Current Session\nChannel: %s\nChat ID: %s", channel, chatID)
 	}
+
+	return sb.String()
+}
+
+// buildTrailingContext returns per-turn context (current time, current sender)
+// that legitimately changes between turns. It is prepended to the current user
+// message — i.e. after the conversation history — so the history prefix cache
+// is not invalidated on every minute rollover or sender switch.
+func buildTrailingContext(senderID, senderDisplayName string) string {
+	now := time.Now().Format("2006-01-02 15:04 (Monday)")
+
+	var sb strings.Builder
+	fmt.Fprintf(&sb, "## Current Time\n%s", now)
 	if senderLine := formatCurrentSenderLine(senderID, senderDisplayName); senderLine != "" {
 		fmt.Fprintf(&sb, "\n\n## Current Sender\n%s", senderLine)
 	}
 
 	return sb.String()
+}
+
+// withTrailingContext prepends per-turn context (time, sender) to the current
+// user message. Positioning it after the history keeps the provider prefix
+// cache valid for the whole conversation (see buildDynamicContext). When
+// PicoClaw's system context is suppressed for the request, the message is
+// returned untouched.
+func withTrailingContext(req PromptBuildRequest) string {
+	if req.SuppressDefaultSystemPrompt {
+		return req.CurrentMessage
+	}
+	trailing := buildTrailingContext(req.SenderID, req.SenderDisplayName)
+	if strings.TrimSpace(req.CurrentMessage) == "" {
+		return trailing
+	}
+	return trailing + "\n\n---\n\n" + req.CurrentMessage
 }
 
 func (cb *ContextBuilder) BuildMessages(
@@ -909,12 +947,14 @@ func (cb *ContextBuilder) BuildMessagesFromPrompt(req PromptBuildRequest) []prov
 
 	dynamicChars := 0
 	if !req.SuppressDefaultSystemPrompt {
-		// Build short dynamic context (time, runtime, session) — changes per request
+		// Build short dynamic context (runtime, session) — stable within a
+		// conversation so it is safe to keep in the system message. Per-turn
+		// values (time, sender) are appended to the trailing user message
+		// instead, to keep the history prefix cacheable (see
+		// buildTrailingContext).
 		dynamicCtx := cb.buildDynamicContext(
 			req.Channel,
 			req.ChatID,
-			req.SenderID,
-			req.SenderDisplayName,
 		)
 		dynamicChars = len(dynamicCtx)
 		runtimePart := PromptPart{
@@ -1009,9 +1049,11 @@ func (cb *ContextBuilder) BuildMessagesFromPrompt(req PromptBuildRequest) []prov
 
 	// Add current user message. Media-only turns must still be preserved so
 	// multimodal providers receive the uploaded image even when the user sends
-	// no accompanying text.
+	// no accompanying text. Per-turn context (time, sender) rides along with
+	// this trailing message rather than the system message, so the history
+	// prefix stays stable and cacheable.
 	if strings.TrimSpace(req.CurrentMessage) != "" || len(req.Media) > 0 {
-		messages = append(messages, userPromptMessage(req.CurrentMessage, req.Media))
+		messages = append(messages, userPromptMessage(withTrailingContext(req), req.Media))
 	}
 	if len(messages) == 0 {
 		messages = append(messages, userPromptMessage("", nil))

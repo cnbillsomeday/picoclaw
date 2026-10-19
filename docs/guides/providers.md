@@ -133,7 +133,7 @@ This design also enables **multi-agent support** with flexible provider selectio
 | `tool_schema_transform` | string | No | Optional compatibility transform for tool parameter schemas. Default: disabled. Supported values: `simple`.                                                                                             |
 | `extra_body` | object | No | Additional fields to inject into every request body                                                                                                                                                                                         |
 | `custom_headers` | object | No | Additional HTTP headers to inject into every request (e.g., `{"X-Source":"coding-plan"}`). If a key matches a built-in header, the custom value overrides the built-in one (e.g., `Authorization`, `User-Agent`, `Content-Type`, `Accept`). |
-| `session_header` | string | No | Header name for a per-conversation session ID (OpenAI-compatible providers only, e.g. `"x-opencode-session"`). When set, every request includes the header with the stable session key of the active conversation, which lets relays like OpenCode Go optimize routing and prompt caching. Empty disables the feature. Takes precedence over a same-named entry in `custom_headers`. |
+| `session_header` | string | No | Header name for a per-conversation session ID (OpenAI-compatible providers and `anthropic-messages` / `alibaba-coding-anthropic`, e.g. `"x-opencode-session"`). When set, every request includes the header with the stable session key of the active conversation, which lets relays like OpenCode Go optimize routing and prompt caching. Empty disables the feature. Takes precedence over a same-named entry in `custom_headers`. |
 | `streaming.enabled` | bool | No | Opt-in for provider streaming on this model entry. Defaults to `false` and also requires the active channel's `settings.streaming.enabled` to be `true`. |
 | `rpm` | int | No | Per-minute request rate limit                                                                                                                                                                                                               |
 | `fallbacks` | string[] | No | Fallback model names for automatic failover                                                                                                                                                                                                 |
@@ -419,8 +419,24 @@ header so it can optimize routing and prompt caching:
 The header value is PicoClaw's stable session key for the active conversation
 (`sk_v1_<sha256>` derived from the agent, channel, account and chat — stable
 across restarts, distinct per conversation and per Telegram topic), so requests
-from the same conversation share one session ID. See also `session_header` in
-the model options table above.
+from the same conversation share one session ID. `session_header` is supported
+by the OpenAI-compatible providers and by `anthropic-messages` /
+`alibaba-coding-anthropic` (Anthropic Messages wire, e.g. Go's Claude models
+via `https://opencode.ai/zen/go/anthropic/v1`). The value is an opaque hash,
+not a raw user identifier, but the header is sent to whatever `api_base` you
+configured — only enable it for endpoints you trust. See also `session_header`
+in the model options table above.
+
+**Prefix-cache-friendly prompt layout**
+
+Per-turn context that changes every request — current time and current sender —
+is prepended to the trailing user message instead of the system message. The
+system message (which precedes the conversation history) now only contains
+values that are stable within a conversation, so a minute rollover or a sender
+switch no longer invalidates the prefix cache for the whole history. Combined
+with `session_header` (backend affinity on OpenCode Go) and per-conversation
+`prompt_cache_key` (OpenAI-native endpoints), this maximizes cache-read rates
+across turns.
 
 **Inline thinking tags (inline reasoning blocks)**
 

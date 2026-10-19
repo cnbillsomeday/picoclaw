@@ -100,13 +100,19 @@ func TestSingleSystemMessage(t *testing.T) {
 				t.Errorf("last message should be user, got %s", msgs[len(msgs)-1].Role)
 			}
 
-			// System message must contain identity (static) and time (dynamic)
+			// System message must contain identity (static) only; per-turn
+			// values like the current time live in the trailing user message
+			// so the history prefix stays cacheable.
 			sys := msgs[0].Content
 			if !strings.Contains(sys, "picoclaw") {
 				t.Error("system message missing identity")
 			}
-			if !strings.Contains(sys, "Current Time") {
-				t.Error("system message missing dynamic time context")
+			if strings.Contains(sys, "Current Time") {
+				t.Error("system message must not contain per-turn time context")
+			}
+			last := msgs[len(msgs)-1].Content
+			if !strings.Contains(last, "Current Time") {
+				t.Error("trailing user message missing dynamic time context")
 			}
 
 			// Summary handling
@@ -170,19 +176,26 @@ func TestBuildMessages_CurrentSenderDynamicContext(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			msgs := cb.BuildMessages(nil, "", "hello", nil, "discord", "chat1", tt.senderID, tt.senderDisplayName)
 			sys := msgs[0].Content
+			last := msgs[len(msgs)-1].Content
+
+			// The sender line is per-turn context: it must ride on the trailing
+			// user message, never the system message (which precedes history).
+			if strings.Contains(sys, "## Current Sender") || strings.Contains(sys, "Current sender:") {
+				t.Fatalf("system prompt must not contain per-turn sender info:\n%s", sys)
+			}
 
 			if tt.wantSection {
-				if !strings.Contains(sys, "## Current Sender") {
-					t.Fatalf("system prompt missing Current Sender section:\n%s", sys)
+				if !strings.Contains(last, "## Current Sender") {
+					t.Fatalf("trailing user message missing Current Sender section:\n%s", last)
 				}
-				if !strings.Contains(sys, tt.wantLine) {
-					t.Fatalf("system prompt missing sender line %q:\n%s", tt.wantLine, sys)
+				if !strings.Contains(last, tt.wantLine) {
+					t.Fatalf("trailing user message missing sender line %q:\n%s", tt.wantLine, last)
 				}
 				return
 			}
 
-			if strings.Contains(sys, "## Current Sender") {
-				t.Fatalf("system prompt should omit Current Sender section:\n%s", sys)
+			if strings.Contains(last, "## Current Sender") {
+				t.Fatalf("trailing user message should omit Current Sender section:\n%s", last)
 			}
 		})
 	}
@@ -731,8 +744,10 @@ func TestBuildMessages_IncludesMediaOnlyCurrentMessage(t *testing.T) {
 	if userMsg.Role != "user" {
 		t.Fatalf("userMsg.Role = %q, want %q", userMsg.Role, "user")
 	}
-	if userMsg.Content != "" {
-		t.Fatalf("userMsg.Content = %q, want empty string", userMsg.Content)
+	// Media-only turns still carry the per-turn trailing context (time) as
+	// text; the payload itself must remain the sole media entry.
+	if !strings.Contains(userMsg.Content, "Current Time") {
+		t.Fatalf("userMsg.Content = %q, want trailing time context", userMsg.Content)
 	}
 	if len(userMsg.Media) != 1 || userMsg.Media[0] != "data:image/png;base64,abc123" {
 		t.Fatalf("userMsg.Media = %#v, want image payload", userMsg.Media)

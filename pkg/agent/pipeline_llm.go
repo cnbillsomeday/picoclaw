@@ -68,10 +68,17 @@ func (p *Pipeline) CallLLM(
 		return ControlBreak, err
 	}
 
+	// prompt_cache_key granularity: prefer the per-conversation session key so
+	// prefix-cache routing buckets requests by conversation (better hit rate)
+	// instead of sharing one bucket across all of this agent's conversations.
+	cacheKey := ts.agent.ID
+	if ts.sessionKey != "" {
+		cacheKey = ts.sessionKey
+	}
 	exec.llmOpts = map[string]any{
 		"max_tokens":       ts.agent.MaxTokens,
 		"temperature":      ts.agent.Temperature,
-		"prompt_cache_key": ts.agent.ID,
+		"prompt_cache_key": cacheKey,
 		"session_id":       ts.sessionKey,
 	}
 	if exec.useNativeSearch {

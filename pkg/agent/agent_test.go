@@ -540,13 +540,16 @@ func TestProcessMessage_IncludesCurrentSenderInDynamicContext(t *testing.T) {
 
 	systemPrompt := provider.lastMessages[0].Content
 	wantSender := "## Current Sender\nCurrent sender: Alice (ID: discord:123)"
-	if !strings.Contains(systemPrompt, wantSender) {
-		t.Fatalf("system prompt missing sender context %q:\n%s", wantSender, systemPrompt)
+	if strings.Contains(systemPrompt, wantSender) {
+		t.Fatalf("system prompt must not contain per-turn sender context %q:\n%s", wantSender, systemPrompt)
 	}
 
 	lastMessage := provider.lastMessages[len(provider.lastMessages)-1]
-	if lastMessage.Role != "user" || lastMessage.Content != "hello" {
-		t.Fatalf("last provider message = %+v, want unchanged user message", lastMessage)
+	if lastMessage.Role != "user" || !strings.HasSuffix(lastMessage.Content, "hello") {
+		t.Fatalf("last provider message = %+v, want user message with trailing context prefix", lastMessage)
+	}
+	if !strings.Contains(lastMessage.Content, wantSender) {
+		t.Fatalf("last provider message missing sender context %q:\n%s", wantSender, lastMessage.Content)
 	}
 }
 
@@ -1097,7 +1100,7 @@ func TestProcessMessage_UseCommandLoadsRequestedSkill(t *testing.T) {
 	}
 
 	lastMessage := provider.lastMessages[len(provider.lastMessages)-1]
-	if lastMessage.Role != "user" || lastMessage.Content != "explain how to list files" {
+	if lastMessage.Role != "user" || !strings.HasSuffix(lastMessage.Content, "explain how to list files") {
 		t.Fatalf("last provider message = %+v, want rewritten user message", lastMessage)
 	}
 }
@@ -1168,7 +1171,7 @@ func TestProcessMessage_BtwCommandRunsWithoutPersistingHistory(t *testing.T) {
 	}
 
 	lastMessage := provider.lastMessages[len(provider.lastMessages)-1]
-	if lastMessage.Role != "user" || lastMessage.Content != "explain side effects" {
+	if lastMessage.Role != "user" || !strings.HasSuffix(lastMessage.Content, "explain side effects") {
 		t.Fatalf("last provider message = %+v, want stripped /btw question", lastMessage)
 	}
 
@@ -1220,13 +1223,17 @@ func TestProcessMessage_BtwCommandIncludesRequestContextAndMedia(t *testing.T) {
 	if !strings.Contains(systemPrompt, "## Current Session\nChannel: discord\nChat ID: group-1") {
 		t.Fatalf("system prompt missing current session context:\n%s", systemPrompt)
 	}
-	if !strings.Contains(systemPrompt, "## Current Sender\nCurrent sender: Alice (ID: discord:123)") {
-		t.Fatalf("system prompt missing current sender context:\n%s", systemPrompt)
+	wantSender := "## Current Sender\nCurrent sender: Alice (ID: discord:123)"
+	if strings.Contains(systemPrompt, wantSender) {
+		t.Fatalf("system prompt must not contain per-turn sender context:\n%s", systemPrompt)
 	}
 
 	lastMessage := provider.lastMessages[len(provider.lastMessages)-1]
-	if lastMessage.Role != "user" || lastMessage.Content != "describe this image" {
+	if lastMessage.Role != "user" || !strings.HasSuffix(lastMessage.Content, "describe this image") {
 		t.Fatalf("last provider message = %+v, want stripped /btw question", lastMessage)
+	}
+	if !strings.Contains(lastMessage.Content, wantSender) {
+		t.Fatalf("last provider message missing sender context %q:\n%s", wantSender, lastMessage.Content)
 	}
 	if !reflect.DeepEqual(lastMessage.Media, []string{"media://image-1"}) {
 		t.Fatalf("last provider media = %#v, want media ref", lastMessage.Media)
@@ -1291,7 +1298,7 @@ func TestProcessMessage_BtwCommandUsesIsolatedProvider(t *testing.T) {
 
 	// Verify the question was stripped of /btw prefix
 	lastMessage := provider.lastMessages[len(provider.lastMessages)-1]
-	if lastMessage.Role != "user" || lastMessage.Content != "explain isolation" {
+	if lastMessage.Role != "user" || !strings.HasSuffix(lastMessage.Content, "explain isolation") {
 		t.Fatalf("last provider message = %+v, want stripped /btw question", lastMessage)
 	}
 
@@ -1524,7 +1531,7 @@ func TestProcessMessage_UseCommandArmsSkillForNextMessage(t *testing.T) {
 		t.Fatalf("system prompt missing pending skill content:\n%s", systemPrompt)
 	}
 	lastMessage := provider.lastMessages[len(provider.lastMessages)-1]
-	if lastMessage.Role != "user" || lastMessage.Content != "explain how to list files" {
+	if lastMessage.Role != "user" || !strings.HasSuffix(lastMessage.Content, "explain how to list files") {
 		t.Fatalf("last provider message = %+v, want unchanged follow-up user message", lastMessage)
 	}
 }

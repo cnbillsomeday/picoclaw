@@ -39,15 +39,38 @@ const (
 // Provider implements Anthropic Messages API via HTTP (without SDK).
 // It supports custom endpoints that use Anthropic's native message format.
 type Provider struct {
-	apiKey     string
-	apiBase    string
-	httpClient *http.Client
-	userAgent  string
+	apiKey        string
+	apiBase       string
+	httpClient    *http.Client
+	userAgent     string
+	sessionHeader string // Header name for per-conversation session ID; empty = disabled
 }
 
 // NewProvider creates a new Anthropic Messages API provider.
 func NewProvider(apiKey, apiBase, userAgent string) *Provider {
 	return NewProviderWithTimeout(apiKey, apiBase, userAgent, 0)
+}
+
+// SetSessionHeader enables a per-conversation session ID header. The
+// configured name is used as the header name (e.g. "x-opencode-session") and
+// the value is read from options["session_id"] on every request. An empty
+// name disables the feature.
+func (p *Provider) SetSessionHeader(name string) {
+	p.sessionHeader = strings.TrimSpace(name)
+}
+
+// applySessionHeader sets the configured session header to the conversation's
+// stable session ID when present in options.
+func (p *Provider) applySessionHeader(req *http.Request, options map[string]any) {
+	if p.sessionHeader == "" {
+		return
+	}
+	sessionID, _ := options["session_id"].(string)
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return
+	}
+	req.Header.Set(p.sessionHeader, sessionID)
 }
 
 // NewProviderWithTimeout creates a provider with custom request timeout.
@@ -111,6 +134,7 @@ func (p *Provider) Chat(
 	if p.userAgent != "" {
 		req.Header.Set("User-Agent", p.userAgent)
 	}
+	p.applySessionHeader(req, options)
 
 	// Execute request
 	resp, err := p.httpClient.Do(req)
