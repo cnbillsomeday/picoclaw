@@ -403,6 +403,75 @@ type RoutingConfig struct {
 	Enabled    bool    `json:"enabled"`
 	LightModel string  `json:"light_model"` // model_name from model_list to use for simple tasks
 	Threshold  float64 `json:"threshold"`   // complexity score in [0,1]; score >= threshold → primary model
+
+	// EscalatePromptTokens upgrades a routed light-model turn to the primary
+	// model pool once a single LLM response reports at least this many prompt
+	// tokens (context ballooned beyond light-model territory).
+	// 0 = default (32_000); negative disables the check.
+	EscalatePromptTokens int `json:"escalate_prompt_tokens,omitempty"`
+
+	// EscalateToolIterations upgrades a routed light-model turn to the primary
+	// model pool after this many consecutive tool-calling iterations
+	// (tool-heavy agentic work belongs on the primary model).
+	// 0 = default (3); negative disables the check.
+	EscalateToolIterations int `json:"escalate_tool_iterations,omitempty"`
+
+	// RepeatBreakerIterations stops a turn after this many consecutive LLM
+	// responses that repeat the exact same tool call (same tool, same
+	// arguments) — the degenerate-loop guard that protects the token budget.
+	// Applies to every model tier. 0 = default (5); negative disables.
+	RepeatBreakerIterations int `json:"repeat_breaker_iterations,omitempty"`
+}
+
+// Routing guard defaults. Zero config values fall back to these; negative
+// values disable the individual guard.
+const (
+	DefaultRoutingEscalatePromptTokens    = 32000
+	DefaultRoutingEscalateToolIterations  = 3
+	DefaultRoutingRepeatBreakerIterations = 5
+)
+
+// GetEscalatePromptTokens returns the effective prompt-token escalation threshold.
+// A missing (nil) routing section falls back to the default; negative disables.
+func (r *RoutingConfig) GetEscalatePromptTokens() int {
+	if r == nil {
+		return DefaultRoutingEscalatePromptTokens
+	}
+	if r.EscalatePromptTokens < 0 {
+		return 0
+	}
+	if r.EscalatePromptTokens == 0 {
+		return DefaultRoutingEscalatePromptTokens
+	}
+	return r.EscalatePromptTokens
+}
+
+// GetEscalateToolIterations returns the effective tool-intensity escalation threshold.
+func (r *RoutingConfig) GetEscalateToolIterations() int {
+	if r == nil {
+		return DefaultRoutingEscalateToolIterations
+	}
+	if r.EscalateToolIterations < 0 {
+		return 0
+	}
+	if r.EscalateToolIterations == 0 {
+		return DefaultRoutingEscalateToolIterations
+	}
+	return r.EscalateToolIterations
+}
+
+// GetRepeatBreakerIterations returns the effective repeat-loop breaker threshold.
+func (r *RoutingConfig) GetRepeatBreakerIterations() int {
+	if r == nil {
+		return DefaultRoutingRepeatBreakerIterations
+	}
+	if r.RepeatBreakerIterations < 0 {
+		return 0
+	}
+	if r.RepeatBreakerIterations == 0 {
+		return DefaultRoutingRepeatBreakerIterations
+	}
+	return r.RepeatBreakerIterations
 }
 
 // SubTurnConfig configures the SubTurn execution system.

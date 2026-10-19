@@ -236,12 +236,16 @@ Current fields:
 | `enabled` | Turn model routing on or off |
 | `light_model` | `model_name` from `model_list` used for simple turns |
 | `threshold` | Complexity cutoff in `[0, 1]` |
+| `escalate_prompt_tokens` | Upgrade the rest of a light-model turn to the primary pool once a response reports this many prompt tokens (context too large for the light tier). `0` = default 32000, negative disables |
+| `escalate_tool_iterations` | Upgrade the rest of a light-model turn to the primary pool after this many consecutive tool-calling iterations (tool-heavy work). `0` = default 3, negative disables |
+| `repeat_breaker_iterations` | Stop the turn after this many consecutive responses repeating the exact same tool call (same tool, same arguments) — applies to every model tier. `0` = default 5, negative disables |
 
 Important behavior:
 
 - the light model must exist in `model_list`
 - PicoClaw resolves the light model at startup; if it is invalid, routing is disabled
-- one turn stays on one model tier, even if it later calls tools
+- one turn stays on one model tier, even if it later calls tools — except for the two escalation thresholds above, which hand the rest of the turn back to the primary pool (at most once per turn)
+- if every candidate of the light model fails (provider down, auth revoked), the turn escalates to the primary pool instead of failing
 
 ## What Affects The Complexity Score
 

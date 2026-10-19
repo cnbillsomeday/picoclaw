@@ -496,6 +496,27 @@ func (p *Pipeline) CallLLM(
 		break
 	}
 
+	// v1.3.1: the light pool may be entirely unusable (provider down, auth
+	// revoked). Give the primary pool one shot instead of failing the turn.
+	if err != nil && exec.usedLight && !exec.routingEscalated && len(ts.agent.Candidates) > 0 {
+		logger.WarnCF("agent", "Light model pool failed; escalating to primary pool", map[string]any{
+			"agent_id": ts.agent.ID,
+			"model":    exec.llmModelName,
+			"error":    err.Error(),
+		})
+		if switchErr := p.switchExecCandidates(
+			ts,
+			exec,
+			ts.agent.Candidates,
+			strings.TrimSpace(ts.agent.Model),
+			"light_pool_failed",
+		); switchErr == nil {
+			exec.routingEscalated = true
+			applyTurnThinkingOptions(exec, ts.agent, exec.activeProvider, true)
+			exec.response, err = callLLM(exec.callMessages, exec.providerToolDefs)
+		}
+	}
+
 	if err != nil {
 		al.emitEvent(
 			runtimeevents.KindAgentError,

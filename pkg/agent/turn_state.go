@@ -133,6 +133,19 @@ type turnExecution struct {
 	activeProvider    providers.LLMProvider
 	usedLight         bool
 
+	// Routing guard state (repeat breaker + mid-turn escalation):
+	// - repeatLastSignature/repeatSignatureCount track consecutive identical
+	//   tool-call signatures to stop degenerate loops.
+	// - consecutiveToolIters counts consecutive tool-calling iterations for
+	//   the tool-intensity escalation trigger.
+	// - routingEscalated is a one-shot latch: the light pool hands the rest
+	//   of the turn to the primary pool at most once per turn (either because
+	//   a guard threshold hit or because the whole light pool failed).
+	repeatLastSignature  string
+	repeatSignatureCount int
+	consecutiveToolIters int
+	routingEscalated     bool
+
 	// LLM call per-iteration state
 	response            *providers.LLMResponse
 	normalizedToolCalls []providers.ToolCall

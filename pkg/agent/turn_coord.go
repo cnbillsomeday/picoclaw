@@ -95,13 +95,30 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 	maxMediaSize := pipeline.Cfg.Agents.Defaults.GetMaxMediaSize()
 	finalContent := exec.finalContent
 
-	for ts.currentIteration() < ts.agent.MaxIterations || len(exec.pendingMessages) > 0 || func() bool {
-		graceful, _ := ts.gracefulInterruptRequested()
-		return graceful
-	}() {
+	// Steering messages may extend a turn past max_tool_iterations; bound
+	// that bypass with a hard cap so a broken loop cannot run forever.
+	steeringHardCap := steeringHardCap(ts.agent.MaxIterations)
+	steeringCapWarned := false
+
+	for ts.currentIteration() < ts.agent.MaxIterations ||
+		(len(exec.pendingMessages) > 0 &&
+			(steeringHardCap <= 0 || ts.currentIteration() < steeringHardCap)) ||
+		func() bool {
+			graceful, _ := ts.gracefulInterruptRequested()
+			return graceful
+		}() {
 		if ts.hardAbortRequested() {
 			turnStatus = TurnEndStatusAborted
 			return al.abortTurn(ts)
+		}
+
+		if steeringHardCap > 0 && ts.currentIteration() > steeringHardCap && !steeringCapWarned {
+			steeringCapWarned = true
+			logger.WarnCF("agent", "Steering bypass hit the hard iteration cap", map[string]any{
+				"agent_id": ts.agent.ID,
+				"cap":      steeringHardCap,
+				"max":      ts.agent.MaxIterations,
+			})
 		}
 
 		iteration := ts.currentIteration() + 1
@@ -206,6 +223,15 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 		messages = exec.messages
 		pendingMessages = exec.pendingMessages
 		finalContent = exec.finalContent
+
+		// v1.3.1 routing guards: stop degenerate tool-call loops and escalate
+		// an overmatched light model to the primary pool mid-turn.
+		if guardBreak, guardContent := pipeline.ApplyRoutingGuards(ts, exec, iteration); guardBreak {
+			turnStatus = TurnEndStatusError
+			exec.finalContent = guardContent
+			finalContent = guardContent
+			break
+		}
 
 		switch ctrl {
 		case ControlContinue:

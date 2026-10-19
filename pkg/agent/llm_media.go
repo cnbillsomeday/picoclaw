@@ -5,7 +5,6 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/providers"
 )
 
@@ -146,48 +145,5 @@ func (p *Pipeline) routeMediaTurn(ts *turnState, exec *turnExecution) error {
 		return nil
 	}
 
-	targetModel := resolvedCandidateModel(targetCandidates, targetModelName)
-	targetProvider := exec.activeProvider
-	firstCandidate := targetCandidates[0]
-	if provider, err := providerForFallbackCandidate(
-		ts.agent,
-		ts.agent.Provider,
-		ts.agent.Candidates,
-		firstCandidate,
-	); err != nil {
-		return err
-	} else if provider != nil {
-		targetProvider = provider
-	}
-
-	resolvedModelName := resolvedCandidateModelName(targetCandidates, targetModelName)
-	if sameCandidateSet(exec.activeCandidates, targetCandidates) &&
-		exec.activeModel == targetModel &&
-		exec.llmModelName == resolvedModelName {
-		return nil
-	}
-
-	exec.activeCandidates = targetCandidates
-	exec.activeModel = targetModel
-	exec.activeProvider = targetProvider
-	exec.activeModelConfig = resolveActiveModelConfig(
-		p.Cfg,
-		ts.agent.Workspace,
-		targetCandidates,
-		targetModel,
-		p.Cfg.Agents.Defaults.Provider,
-	)
-	exec.llmModelName = resolvedModelName
-	exec.usedLight = false
-
-	logger.InfoCF("agent", "Media turn routing selected model", map[string]any{
-		"agent_id":       ts.agent.ID,
-		"reason":         routeReason,
-		"model":          exec.activeModel,
-		"model_name":     exec.llmModelName,
-		"candidates":     len(exec.activeCandidates),
-		"messages_count": len(exec.callMessages),
-	})
-
-	return nil
+	return p.switchExecCandidates(ts, exec, targetCandidates, targetModelName, routeReason)
 }
