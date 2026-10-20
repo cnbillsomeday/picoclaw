@@ -270,6 +270,11 @@ type turnState struct {
 	lastFinishReason string               // Last LLM finish_reason
 	lastUsage        *providers.UsageInfo // Last LLM usage info
 
+	// Per-turn usage accounting reported to channels (owner notifications).
+	usageIn  int
+	usageOut int
+	llmCalls int
+
 	// Back-reference to the owning AgentLoop (set for SubTurns only, used for hard abort cascade)
 	al *AgentLoop
 }
@@ -427,8 +432,68 @@ func (ts *turnState) completeInbound(result bus.InboundResult) {
 		return
 	}
 	ts.completionOnce.Do(func() {
+		ts.fillInboundUsage(&result)
 		ts.opts.Completion(result)
 	})
+}
+
+// fillInboundUsage attaches the turn's token/call accounting to a terminal
+// result so channels can report what the exchange cost.
+func (ts *turnState) fillInboundUsage(result *bus.InboundResult) {
+	if result == nil {
+		return
+	}
+	usage := ts.UsageSnapshot()
+	if result.Usage.TokensIn == 0 {
+		result.Usage.TokensIn = usage.TokensIn
+	}
+	if result.Usage.TokensOut == 0 {
+		result.Usage.TokensOut = usage.TokensOut
+	}
+	if result.Usage.LLMCalls == 0 {
+		result.Usage.LLMCalls = usage.LLMCalls
+	}
+	if result.Usage.Iterations == 0 {
+		result.Usage.Iterations = usage.Iterations
+	}
+	if result.Usage.MaxIterations == 0 {
+		result.Usage.MaxIterations = usage.MaxIterations
+	}
+}
+
+// UsageSnapshot returns the turn's accumulated LLM usage.
+func (ts *turnState) UsageSnapshot() bus.TurnUsage {
+	if ts == nil {
+		return bus.TurnUsage{}
+	}
+	ts.mu.RLock()
+	usage := bus.TurnUsage{
+		TokensIn:   ts.usageIn,
+		TokensOut:  ts.usageOut,
+		LLMCalls:   ts.llmCalls,
+		Iterations: ts.iteration,
+	}
+	ts.mu.RUnlock()
+	if ts.agent != nil {
+		usage.MaxIterations = ts.agent.MaxIterations
+	}
+	return usage
+}
+
+// recordLLMCall counts one LLM request and accumulates its token usage.
+func (ts *turnState) recordLLMCall(usage *providers.UsageInfo) {
+	if ts == nil {
+		return
+	}
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	ts.llmCalls++
+	if usage == nil {
+		return
+	}
+	ts.usageIn += usage.PromptTokens
+	ts.usageOut += usage.CompletionTokens
+	ts.lastUsage = usage
 }
 
 func (ts *turnState) setFinalContent(content string) {

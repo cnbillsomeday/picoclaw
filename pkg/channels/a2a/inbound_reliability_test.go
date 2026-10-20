@@ -172,7 +172,7 @@ func TestInboundStateDeadLetterAndStaleCallback(t *testing.T) {
 		Version: stateVersion, Agent: "alpha", Inbound: map[string]map[string]*inboundEntry{},
 	}}
 	now := time.Now()
-	if attempt := st.MarkInboundPending("c_1", "m_1", now, "hello"); attempt != 1 {
+	if attempt := st.MarkInboundPending("c_1", "m_1", now, "hello", now); attempt != 1 {
 		t.Fatalf("attempt = %d, want 1", attempt)
 	}
 	status, applied := st.ApplyInboundResult("c_1", "m_1", 1, now, bus.InboundResultError, "boom", time.Minute, 1)
@@ -189,14 +189,14 @@ func TestInboundStateDeadLetterAndStaleCallback(t *testing.T) {
 		t.Fatal("stale callback was applied")
 	}
 
-	if attempt := st.MarkInboundPending("c_2", "m_2", now, "hello"); attempt != 1 {
+	if attempt := st.MarkInboundPending("c_2", "m_2", now, "hello", now); attempt != 1 {
 		t.Fatalf("attempt = %d, want 1", attempt)
 	}
 	status, applied = st.ApplyInboundResult("c_2", "m_2", 1, now, bus.InboundResultError, "retry", time.Minute, 3)
 	if !applied || status != "failed" {
 		t.Fatalf("status=%q applied=%v, want failed/true", status, applied)
 	}
-	if attempt := st.MarkInboundPending("c_2", "m_2", now.Add(2*time.Minute), "hello"); attempt != 2 {
+	if attempt := st.MarkInboundPending("c_2", "m_2", now.Add(2*time.Minute), "hello", now); attempt != 2 {
 		t.Fatalf("retry attempt = %d, want 2", attempt)
 	}
 	if _, applied := st.ApplyInboundResult("c_2", "m_2", 1, now, bus.InboundResultCompleted, "", time.Minute, 3); applied {
@@ -232,7 +232,7 @@ func TestPickDeliverableRetriesReadMessageWithFailedState(t *testing.T) {
 		Version: stateVersion, Agent: "beta",
 	}}
 	now := time.Now()
-	st.MarkInboundPending("c_1", "m_retry", now, "hello")
+	st.MarkInboundPending("c_1", "m_retry", now, "hello", now)
 	status, applied := st.ApplyInboundResult("c_1", "m_retry", 1, now, bus.InboundResultError, "boom", time.Minute, 3)
 	if !applied || status != "failed" {
 		t.Fatalf("status=%q applied=%v, want failed/true", status, applied)

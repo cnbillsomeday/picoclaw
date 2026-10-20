@@ -43,6 +43,28 @@ type InboundResult struct {
 	// Reply is the final response preview associated with the turn, used by
 	// channels that need to report terminal results to another destination.
 	Reply string `json:"reply,omitempty"`
+	// Usage summarises the LLM work spent on this turn, so channels can report
+	// "this wake-up cost N tokens in M calls" to the owner.
+	Usage TurnUsage `json:"usage,omitempty"`
+}
+
+// TurnUsage is the per-turn LLM accounting attached to an inbound result or an
+// outbound message. Tokens are summed over every LLM request in the turn.
+type TurnUsage struct {
+	TokensIn      int `json:"tokens_in,omitempty"`
+	TokensOut     int `json:"tokens_out,omitempty"`
+	LLMCalls      int `json:"llm_calls,omitempty"`
+	Iterations    int `json:"iterations,omitempty"`
+	MaxIterations int `json:"max_iterations,omitempty"`
+}
+
+// TotalTokens returns the summed prompt+completion tokens.
+func (u TurnUsage) TotalTokens() int { return u.TokensIn + u.TokensOut }
+
+// IsZero reports whether nothing was accounted (e.g. a turn rejected before
+// the first LLM request).
+func (u TurnUsage) IsZero() bool {
+	return u.TokensIn == 0 && u.TokensOut == 0 && u.LLMCalls == 0 && u.Iterations == 0
 }
 
 const (
@@ -102,6 +124,9 @@ type OutboundMessage struct {
 	Content          string         `json:"content"`
 	ReplyToMessageID string         `json:"reply_to_message_id,omitempty"`
 	ContextUsage     *ContextUsage  `json:"context_usage,omitempty"`
+	// Usage is the turn's token accounting, attached so a channel can include
+	// it in an owner-facing summary of the exchange.
+	Usage TurnUsage `json:"usage,omitempty"`
 }
 
 // MediaPart describes a single media attachment to send.

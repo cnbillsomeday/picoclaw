@@ -131,7 +131,7 @@ func (c *Channel) pollOnce(ctx context.Context) error {
 			})
 			c.state.MarkSeen(conv.ID, msg.ID)
 			c.state.MarkInboundDead(conv.ID, msg.ID, now, "cannot resolve peer")
-			c.notifyOwnerForInbound(conv.ID, "", msg.ID, previewText(msg.BodyText(), 200), "", bus.InboundResult{
+			c.notifyOwnerForInbound(conv.ID, "", msg.ID, previewText(msg.BodyText(), 200), parseMessageTime(msg.CreatedAt), "", bus.InboundResult{
 				Status: "dead", Error: "cannot resolve peer",
 			}, "dead")
 			if c.clearUnreadIfSettled(ctx, conv.ID) {
@@ -147,7 +147,7 @@ func (c *Channel) pollOnce(ctx context.Context) error {
 			})
 			c.state.MarkSeen(conv.ID, msg.ID)
 			c.state.MarkInboundDead(conv.ID, msg.ID, now, "sender not in allow_from")
-			c.notifyOwnerForInbound(conv.ID, peer, msg.ID, previewText(msg.BodyText(), 200), "", bus.InboundResult{
+			c.notifyOwnerForInbound(conv.ID, peer, msg.ID, previewText(msg.BodyText(), 200), parseMessageTime(msg.CreatedAt), "", bus.InboundResult{
 				Status: "dead", Error: "sender not in allow_from",
 			}, "dead")
 			if c.clearUnreadIfSettled(ctx, conv.ID) {
@@ -164,7 +164,7 @@ func (c *Channel) pollOnce(ctx context.Context) error {
 			})
 			c.state.MarkSeen(conv.ID, msg.ID)
 			c.state.MarkInboundDead(conv.ID, msg.ID, now, "signature state: "+msg.SigState)
-			c.notifyOwnerForInbound(conv.ID, peer, msg.ID, previewText(msg.BodyText(), 200), "", bus.InboundResult{
+			c.notifyOwnerForInbound(conv.ID, peer, msg.ID, previewText(msg.BodyText(), 200), parseMessageTime(msg.CreatedAt), "", bus.InboundResult{
 				Status: "dead", Error: "signature state: " + msg.SigState,
 			}, "dead")
 			if c.clearUnreadIfSettled(ctx, conv.ID) {
@@ -173,7 +173,7 @@ func (c *Channel) pollOnce(ctx context.Context) error {
 			continue
 		}
 
-		attempt := c.state.MarkInboundPending(conv.ID, msg.ID, now, msg.BodyText())
+		attempt := c.state.MarkInboundPending(conv.ID, msg.ID, now, msg.BodyText(), parseMessageTime(msg.CreatedAt))
 		if saveErr := c.state.Save(); saveErr != nil {
 			logger.WarnCF("a2a", "failed to persist inbound pending state", map[string]any{
 				"agent": c.agentSlug,
@@ -312,6 +312,9 @@ func (c *Channel) deliverInbound(ctx context.Context, peer, convID string, msg w
 	}
 	inbound.Raw[notifyConversationKey] = convID
 	inbound.Raw[notifyInboundKey] = previewText(msg.BodyText(), 200)
+	if rawTime := strings.TrimSpace(msg.CreatedAt); rawTime != "" {
+		inbound.Raw[notifyInboundAtKey] = rawTime
+	}
 	sender := bus.SenderInfo{
 		Platform:    "a2a",
 		PlatformID:  peer,
@@ -343,8 +346,12 @@ func (c *Channel) handleInboundResult(convID, peer, msgID string, attempt int, r
 	now := c.currentTime()
 	entry := c.state.InboundEntry(convID, msgID)
 	inboundPreview := ""
+	inboundAt := time.Time{}
 	if entry != nil {
 		inboundPreview = entry.BodyPreview
+		if entry.MessageAt > 0 {
+			inboundAt = time.Unix(entry.MessageAt, 0)
+		}
 	}
 	status, applied := c.state.ApplyInboundResult(
 		convID,
@@ -374,7 +381,8 @@ func (c *Channel) handleInboundResult(convID, peer, msgID string, attempt int, r
 			"error": err.Error(),
 		})
 	}
-	c.notifyOwnerForInbound(convID, peer, msgID, inboundPreview, inboundReply(result.Reply, c.isAckOrClosure), result, status)
+	c.notifyOwnerForInbound(convID, peer, msgID, inboundPreview, inboundAt,
+		inboundReply(result.Reply, c.isAckOrClosure), result, status)
 	// On completed, leave explicit-send markers for the final reply's Send
 	// call to consume (Send may be dispatched asynchronously). On failure the
 	// error outbound is filtered, so clear them here to avoid stale suppression.
@@ -560,6 +568,18 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 	case <-t.C:
 		return nil
 	}
+}
+
+// parseMessageTime parses the platform's RFC3339 message timestamp.
+func parseMessageTime(raw string) time.Time {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return time.Time{}
+	}
+	if ts, err := time.Parse(time.RFC3339, raw); err == nil {
+		return ts
+	}
+	return time.Time{}
 }
 
 func firstNonEmpty(values ...string) string {

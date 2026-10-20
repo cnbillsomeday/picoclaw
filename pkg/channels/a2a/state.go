@@ -58,6 +58,9 @@ type inboundEntry struct {
 	NextAttempt int64  `json:"next_attempt,omitempty"`
 	LastError   string `json:"last_error,omitempty"`
 	BodyPreview string `json:"body_preview,omitempty"`
+	// MessageAt is the platform timestamp of the inbound message (unix
+	// seconds), so owner notifications can print when the peer wrote it.
+	MessageAt int64 `json:"message_at,omitempty"`
 }
 
 type channelState struct {
@@ -323,7 +326,10 @@ func (s *channelState) InboundEntry(convID, msgID string) *inboundEntry {
 }
 
 // MarkInboundPending records a delivery attempt and returns the attempt number.
-func (s *channelState) MarkInboundPending(convID, msgID string, now time.Time, preview string) int {
+// messageAt is the platform timestamp of the inbound message (zero if unknown).
+func (s *channelState) MarkInboundPending(
+	convID, msgID string, now time.Time, preview string, messageAt time.Time,
+) int {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.data.Inbound == nil {
@@ -342,6 +348,9 @@ func (s *channelState) MarkInboundPending(convID, msgID string, now time.Time, p
 	entry.LastAttempt = now.Unix()
 	entry.NextAttempt = 0
 	entry.BodyPreview = truncateRunes(strings.TrimSpace(preview), 200)
+	if !messageAt.IsZero() {
+		entry.MessageAt = messageAt.Unix()
+	}
 	return entry.Attempts
 }
 

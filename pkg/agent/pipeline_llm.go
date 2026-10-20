@@ -569,9 +569,9 @@ func (p *Pipeline) CallLLM(
 	// what the streaming publisher reads via GetLastUsage at finalize.
 	if ts != nil {
 		ts.SetLastFinishReason(exec.response.FinishReason)
-		if exec.response.Usage != nil {
-			ts.SetLastUsage(exec.response.Usage)
-		}
+		// Count every LLM request for the turn-level usage summary. Some
+		// providers omit usage; the call still counts even when tokens do not.
+		ts.recordLLMCall(exec.response.Usage)
 	}
 
 	if exec.suppressReasoning {

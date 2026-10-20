@@ -105,6 +105,11 @@ func (al *AgentLoop) publishResponseIfNeeded(
 	}
 	if sessionKey != "" {
 		msg.ContextUsage = computeContextUsage(al.agentForSession(sessionKey), sessionKey)
+		// Attach the running turn's token accounting so a channel that reports
+		// to the owner can include "this reply cost N tokens".
+		if ts := al.getActiveTurnState(sessionKey); ts != nil {
+			msg.Usage = ts.UsageSnapshot()
+		}
 	}
 	markFinalOutbound(&msg)
 	al.bus.PublishOutbound(ctx, msg)

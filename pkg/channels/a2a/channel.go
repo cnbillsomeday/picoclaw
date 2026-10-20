@@ -53,6 +53,7 @@ const (
 	// owner notifications can correlate the reply with the originating message.
 	notifyConversationKey = "a2a_conversation_id"
 	notifyInboundKey      = "a2a_inbound_preview"
+	notifyInboundAtKey    = "a2a_inbound_at"
 
 	// defaultAckPattern matches pure acknowledgements/closures. It is anchored
 	// so only an entire short message is suppressed.
@@ -573,6 +574,29 @@ func (c *Channel) isPeerAllowed(peer string) bool {
 		}
 	}
 	return false
+}
+
+// peerNoticeLabel renders "DisplayName（slug）" for owner notifications, using
+// the refreshed peer directory when available.
+func (c *Channel) peerNoticeLabel(peer string) string {
+	peer = normalizePeer(peer)
+	if peer == "" {
+		return "unknown"
+	}
+	c.peersMu.RLock()
+	agent, ok := c.peers[peer]
+	c.peersMu.RUnlock()
+	if !ok {
+		return peer
+	}
+	name := strings.TrimSpace(agent.DisplayName)
+	if name == "" {
+		name = strings.TrimSpace(agent.Name)
+	}
+	if name == "" || strings.EqualFold(name, peer) {
+		return peer
+	}
+	return name + "（" + peer + "）"
 }
 
 func (c *Channel) currentTime() time.Time {
