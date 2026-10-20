@@ -48,6 +48,10 @@ type Config struct {
 	Heartbeat HeartbeatConfig `json:"heartbeat"           yaml:"-"`
 	Devices   DevicesConfig   `json:"devices"             yaml:"-"`
 	Voice     VoiceConfig     `json:"voice"               yaml:"-"`
+	// A2AServer configures the optional private A2A messaging server
+	// (`picoclaw a2a-server`). It is separate from the standard A2A protocol
+	// and from the `channel_list.a2a` client channel.
+	A2AServer A2AServerConfig `json:"a2a_server,omitempty" yaml:"-"`
 	// BuildInfo contains build-time version information
 	BuildInfo BuildInfo `json:"build_info,omitempty" yaml:"-"`
 
@@ -759,6 +763,53 @@ type PicoClientSettings struct {
 	SessionID    string       `json:"session_id,omitempty"    yaml:"-"`
 	PingInterval int          `json:"ping_interval,omitempty" yaml:"-"`
 	ReadTimeout  int          `json:"read_timeout,omitempty"  yaml:"-"`
+}
+
+// A2ASettings configures the private A2A direct-message client channel.
+//
+// The A2A channel talks to a self-hosted private messaging platform (not the
+// standard a2a-protocol.org protocol): Bearer token auth plus Ed25519 message
+// signatures over the exact message bytes.
+type A2ASettings struct {
+	BaseURL         string       `json:"base_url"                      yaml:"-"               env:"PICOCLAW_CHANNELS_A2A_BASE_URL"`
+	AgentSlug       string       `json:"agent_slug"                    yaml:"-"               env:"PICOCLAW_CHANNELS_A2A_AGENT_SLUG"`
+	Token           SecureString `json:"token,omitzero"                yaml:"token,omitempty" env:"PICOCLAW_CHANNELS_A2A_TOKEN"`
+	KeyFile         string       `json:"key_file,omitempty"            yaml:"-"               env:"PICOCLAW_CHANNELS_A2A_KEY_FILE"`
+	PollIntervalSec int          `json:"poll_interval_sec,omitempty"   yaml:"-"`
+	HTTPTimeoutSec  int          `json:"http_timeout_sec,omitempty"    yaml:"-"`
+	// Sign defaults to true when omitted; set false only for platforms
+	// running in non-strict signing mode.
+	Sign            *bool  `json:"sign,omitempty"                yaml:"-"`
+	MaxMessageChars int    `json:"max_message_chars,omitempty"   yaml:"-"`
+	PeersRefreshSec int    `json:"peers_refresh_sec,omitempty"   yaml:"-"`
+	StateFile       string `json:"state_file,omitempty"          yaml:"-"`
+	CooldownSec     int    `json:"cooldown_sec,omitempty"        yaml:"-"`
+	// DryRun polls and logs inbound messages without delivering them to the
+	// agent, without marking them read and without sending replies.
+	DryRun bool `json:"dry_run,omitempty" yaml:"-"`
+}
+
+// SignEnabled reports whether outbound messages must be signed.
+// Signing is on by default; only an explicit false disables it.
+func (c *A2ASettings) SignEnabled() bool {
+	if c == nil || c.Sign == nil {
+		return true
+	}
+	return *c.Sign
+}
+
+// A2AServerConfig configures the built-in private A2A messaging server.
+type A2AServerConfig struct {
+	Enabled        bool   `json:"enabled,omitempty"             yaml:"-"`
+	Listen         string `json:"listen,omitempty"              yaml:"-"`
+	DataDir        string `json:"data_dir,omitempty"            yaml:"-"`
+	Domain         string `json:"domain,omitempty"              yaml:"-"`
+	RetentionHours int    `json:"retention_hours,omitempty"     yaml:"-"`
+	SignMode       string `json:"sign_mode,omitempty"           yaml:"-"`
+	// AllowDefaultAgents may generate the legacy alice/bob/carol/dave
+	// allowlist when allowlist.json is missing. Never enable in production.
+	AllowDefaultAgents bool   `json:"allow_default_agents,omitempty" yaml:"-"`
+	LogLevel           string `json:"log_level,omitempty"            yaml:"-"`
 }
 
 type IRCSettings struct {

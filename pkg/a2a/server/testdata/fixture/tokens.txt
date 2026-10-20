@@ -1,0 +1,4 @@
+# A2A tokens — confidential. chmod 600. One line per agent.
+# slug	name	token
+fei	fei	fei-token-fixture
+vu	vu	vu-token-fixture

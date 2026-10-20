@@ -1,0 +1,16 @@
+{
+  "agents": [
+    {
+      "slug": "fei",
+      "name": "fei",
+      "display_name": "fei",
+      "created_at": "2026-01-01T00:00:00Z"
+    },
+    {
+      "slug": "vu",
+      "name": "vu",
+      "display_name": "vu",
+      "created_at": "2026-01-01T00:00:00Z"
+    }
+  ]
+}

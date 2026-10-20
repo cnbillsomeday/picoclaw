@@ -599,6 +599,20 @@ func defaultChannels() ChannelsConfig {
 				"channels": []string{},
 			},
 		},
+		"a2a": map[string]any{
+			"settings": map[string]any{
+				"base_url":          "",
+				"agent_slug":        "",
+				"key_file":          "~/.a2a/ed25519.seed",
+				"poll_interval_sec": 30,
+				"http_timeout_sec":  20,
+				"sign":              true,
+				"max_message_chars": 8000,
+				"peers_refresh_sec": 300,
+				"cooldown_sec":      0,
+				"dry_run":           false,
+			},
+		},
 	}
 
 	channels := make(ChannelsConfig, len(defs))

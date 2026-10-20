@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/rs/zerolog"
 	"golang.org/x/term"
@@ -171,6 +172,13 @@ func SetLevelFromString(s string) {
 	if level, ok := ParseLevel(s); ok {
 		SetLevel(level)
 	}
+}
+
+// SetTimestampUTC forces all process log timestamps to UTC. The A2A server is
+// a standalone process and logs in UTC by contract; gateway processes keep the
+// system timezone.
+func SetTimestampUTC() {
+	zerolog.TimestampFunc = func() time.Time { return time.Now().UTC() }
 }
 
 func EnableFileLogging(filePath string) error {

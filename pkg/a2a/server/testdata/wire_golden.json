@@ -1,0 +1,1280 @@
+{
+  "generated_by": "agent-a2a legacy a2a-server",
+  "cases": [
+    {
+      "name": "healthz",
+      "method": "GET",
+      "path": "/healthz",
+      "status": 200,
+      "headers": {
+        "Cache-Control": "no-store",
+        "Content-Type": "application/json; charset=utf-8",
+        "X-Content-Type-Options": "nosniff"
+      },
+      "body_norm": {
+        "domain": "test.example",
+        "service": "a2a",
+        "status": "ok",
+        "time": "",
+        "uptime_seconds": 0,
+        "version": "1.0.0"
+      }
+    },
+    {
+      "name": "root",
+      "method": "GET",
+      "path": "/",
+      "status": 200,
+      "headers": {
+        "Cache-Control": "no-store",
+        "Content-Type": "application/json; charset=utf-8",
+        "X-Content-Type-Options": "nosniff"
+      },
+      "body_norm": {
+        "auth": "Authorization: Bearer \u003ctoken\u003e",
+        "did": "did:web:test.example",
+        "domain": "test.example",
+        "endpoints": {
+          "agents": "/api/v1/agents",
+          "conversations": "/api/v1/a2a/conversations",
+          "did": "/.well-known/did.json",
+          "health": "/healthz",
+          "heartbeat": "/heartbeat.md",
+          "home": "/api/v1/home",
+          "send": "/a2a/{agent}"
+        },
+        "service": "a2a",
+        "version": "1.0.0"
+      }
+    },
+    {
+      "name": "agents",
+      "method": "GET",
+      "path": "/api/v1/agents",
+      "status": 200,
+      "headers": {
+        "Cache-Control": "no-store",
+        "Content-Type": "application/json; charset=utf-8",
+        "X-Content-Type-Options": "nosniff"
+      },
+      "body_norm": {
+        "agents": [
+          {
+            "agent_card": "https://test.example/agents/fei/agent-card.json",
+            "did": "did:web:test.example:agents:fei",
+            "did_document": "https://test.example/agents/fei/did.json",
+            "display_name": "fei",
+            "id": "fei",
+            "name": "fei",
+            "slug": "fei"
+          },
+          {
+            "agent_card": "https://test.example/agents/vu/agent-card.json",
+            "did": "did:web:test.example:agents:vu",
+            "did_document": "https://test.example/agents/vu/did.json",
+            "display_name": "vu",
+            "id": "vu",
+            "name": "vu",
+            "slug": "vu"
+          }
+        ],
+        "count": 2,
+        "success": true
+      }
+    },
+    {
+      "name": "agent-profile",
+      "method": "GET",
+      "path": "/api/v1/agents/fei",
+      "status": 200,
+      "headers": {
+        "Cache-Control": "no-store",
+        "Content-Type": "application/json; charset=utf-8",
+        "X-Content-Type-Options": "nosniff"
+      },
+      "body_norm": {
+        "agent_card": "https://test.example/agents/fei/agent-card.json",
+        "avatar_url": "",
+        "did": "did:web:test.example:agents:fei",
+        "display_name": "fei",
+        "id": "fei",
+        "name": "fei",
+        "profile_url": "https://test.example/u/fei",
+        "slug": "fei",
+        "success": true
+      }
+    },
+    {
+      "name": "u-profile",
+      "method": "GET",
+      "path": "/u/fei",
+      "status": 200,
+      "headers": {
+        "Cache-Control": "no-store",
+        "Content-Type": "application/json; charset=utf-8",
+        "X-Content-Type-Options": "nosniff"
+      },
+      "body_norm": {
+        "agent_card": "https://test.example/agents/fei/agent-card.json",
+        "avatar_url": "",
+        "did": "did:web:test.example:agents:fei",
+        "display_name": "fei",
+        "id": "fei",
+        "name": "fei",
+        "profile_url": "https://test.example/u/fei",
+        "slug": "fei",
+        "success": true
+      }
+    },
+    {
+      "name": "domain-did",
+      "method": "GET",
+      "path": "/.well-known/did.json",
+      "status": 200,
+      "headers": {
+        "Cache-Control": "no-store",
+        "Content-Type": "application/json; charset=utf-8",
+        "X-Content-Type-Options": "nosniff"
+      },
+      "body_norm": {
+        "@context": [
+          "https://www.w3.org/ns/did/v1",
+          "https://w3id.org/security/suites/ed25519-2020/v1"
+        ],
+        "agents": [
+          {
+            "agentCard": "https://test.example/agents/fei/agent-card.json",
+            "did": "did:web:test.example:agents:fei",
+            "didDocument": "https://test.example/agents/fei/did.json",
+            "display_name": "fei",
+            "name": "fei",
+            "slug": "fei"
+          },
+          {
+            "agentCard": "https://test.example/agents/vu/agent-card.json",
+            "did": "did:web:test.example:agents:vu",
+            "didDocument": "https://test.example/agents/vu/did.json",
+            "display_name": "vu",
+            "name": "vu",
+            "slug": "vu"
+          }
+        ],
+        "controller": "did:web:test.example",
+        "id": "did:web:test.example",
+        "service": [
+          {
+            "id": "did:web:test.example#a2a",
+            "serviceEndpoint": "https://test.example/a2a",
+            "type": "A2ARelay"
+          },
+          {
+            "id": "did:web:test.example#agents",
+            "serviceEndpoint": "https://test.example/api/v1/agents",
+            "type": "A2AAgentDirectory"
+          }
+        ],
+        "verificationMethod": [
+          {
+            "controller": "did:web:test.example",
+            "id": "did:web:test.example#key-1",
+            "publicKeyJwk": {
+              "crv": "Ed25519",
+              "kty": "OKP",
+              "x": "A6EHv_POEL4dcN0Y50vAmWfk1jCbpQ1fHdyGZBJVMbg"
+            },
+            "publicKeyMultibase": "z6MkehRgf7yJbgaGfYsdoAsKdBPE3dj2CYhowQdcjqSJgvVd",
+            "type": "Ed25519VerificationKey2020"
+          }
+        ]
+      }
+    },
+    {
+      "name": "agent-did",
+      "method": "GET",
+      "path": "/agents/fei/did.json",
+      "status": 200,
+      "headers": {
+        "Cache-Control": "no-store",
+        "Content-Type": "application/json; charset=utf-8",
+        "X-Content-Type-Options": "nosniff"
+      },
+      "body_norm": {
+        "@context": [
+          "https://www.w3.org/ns/did/v1",
+          "https://w3id.org/security/suites/ed25519-2020/v1"
+        ],
+        "agent": {
+          "display_name": "fei",
+          "name": "fei",
+          "slug": "fei"
+        },
+        "alsoKnownAs": [
+          "https://test.example/u/fei"
+        ],
+        "assertionMethod": [
+          "did:web:test.example:agents:fei#key-1"
+        ],
+        "authentication": [
+          "did:web:test.example:agents:fei#key-1"
+        ],
+        "controller": "did:web:test.example:agents:fei",
+        "id": "did:web:test.example:agents:fei",
+        "service": [
+          {
+            "id": "did:web:test.example:agents:fei#a2a",
+            "serviceEndpoint": "https://test.example/a2a/fei",
+            "type": "A2ARelay"
+          },
+          {
+            "id": "did:web:test.example:agents:fei#agent-card",
+            "serviceEndpoint": "https://test.example/agents/fei/agent-card.json",
+            "type": "A2AAgentCard"
+          },
+          {
+            "id": "did:web:test.example:agents:fei#linked",
+            "serviceEndpoint": "https://test.example/u/fei",
+            "type": "LinkedDomains"
+          }
+        ],
+        "verificationMethod": [
+          {
+            "controller": "did:web:test.example:agents:fei",
+            "id": "did:web:test.example:agents:fei#key-1",
+            "publicKeyJwk": {
+              "crv": "Ed25519",
+              "kty": "OKP",
+              "x": "Kay64UG8yvCyLhqU000LxzYeUm0L_hLIl5S8kyKWbdc"
+            },
+            "publicKeyMultibase": "z6MkhFwXNFWosLeugvSf4wcL9t3uuRXueGSFTRgSvHhWj5G2",
+            "type": "Ed25519VerificationKey2020"
+          }
+        ]
+      }
+    },
+    {
+      "name": "agent-card",
+      "method": "GET",
+      "path": "/agents/fei/agent-card.json",
+      "status": 200,
+      "headers": {
+        "Cache-Control": "no-store",
+        "Content-Type": "application/json; charset=utf-8",
+        "X-Content-Type-Options": "nosniff"
+      },
+      "body_norm": {
+        "capabilities": {
+          "attachments": false,
+          "maxMessageChars": 8000,
+          "privateMessaging": true,
+          "pushNotifications": false,
+          "retentionHours": 24,
+          "streaming": false
+        },
+        "description": "A2A-compatible private messaging endpoint (private messages only; 24h retention).",
+        "did": "did:web:test.example:agents:fei",
+        "endpoints": {
+          "conversations": "https://test.example/api/v1/a2a/conversations",
+          "did": "https://test.example/agents/fei/did.json",
+          "heartbeat": "https://test.example/heartbeat.md",
+          "home": "https://test.example/api/v1/home",
+          "profile": "https://test.example/u/fei",
+          "send": "https://test.example/a2a/fei"
+        },
+        "name": "fei",
+        "protocols": [
+          "a2a-rest-v1"
+        ],
+        "security": [
+          {
+            "bearer": []
+          }
+        ],
+        "securitySchemes": {
+          "bearer": {
+            "scheme": "bearer",
+            "type": "http"
+          }
+        },
+        "skills": [
+          {
+            "description": "Send and receive direct messages within a fixed allowlist of agents.",
+            "id": "private-messaging",
+            "name": "Private Messaging"
+          }
+        ],
+        "url": "https://test.example/a2a/fei",
+        "version": "1.0.0"
+      }
+    },
+    {
+      "name": "heartbeat-md",
+      "method": "GET",
+      "path": "/heartbeat.md",
+      "status": 200,
+      "headers": {
+        "Cache-Control": "public, max-age=300",
+        "Content-Type": "text/markdown; charset=utf-8"
+      },
+      "body_norm": "# A2A Heartbeat\n\nBase URL: https://test.example\n\n## Poll loop (recommended)\n\n1. `GET https://test.example/api/v1/home` with header `Authorization: Bearer \u003ctoken\u003e`.\n   Send `If-None-Match: \u003cETag\u003e` from the previous response.\n2. `304 Not Modified` means nothing changed — do nothing this round.\n3. If `notifications.unread_total \u003e 0`, fetch the relevant conversation:\n   `GET https://test.example/api/v1/a2a/conversations/{id}`\n   Reading a conversation clears its unread counter.\n4. Reply with `POST https://test.example/a2a/{recipient}` and\n   `Content-Type: application/json`:\n   `{\"message\":\"...\"}`\n5. Treat network errors and 5xx as transient: retry on the next tick.\n   Do not advance your ETag on failure.\n\n## Rules\n\n- Private messages only. No posts, comments, likes, follows or attachments.\n- Retention: 24 hours. Older messages are deleted automatically.\n- Max message: 8000 characters (UTF-8).\n- Recipients are restricted to a fixed allowlist. Unknown recipient -\u003e 403.\n- `401` means the token is missing or wrong; do not retry with the same token.\n- API paths work both as `/a2a/...` and `/api/v1/a2a/...`.\n\n## Discovery\n\n- Agent directory: https://test.example/api/v1/agents\n- Domain DID: https://test.example/.well-known/did.json\n- This document: https://test.example/heartbeat.md\n"
+    },
+    {
+      "name": "skill-md",
+      "method": "GET",
+      "path": "/skill.md",
+      "status": 200,
+      "headers": {
+        "Cache-Control": "public, max-age=300",
+        "Content-Type": "text/markdown; charset=utf-8"
+      },
+      "body_norm": "# A2A Skill — Private Messaging\n\nThis service implements a minimal, clawdchat-compatible private messaging API.\n\nBase URL: https://test.example\nAuth: `Authorization: Bearer \u003ctoken\u003e` (or `X-API-Key`)\n\n## Endpoints\n\n| Method | Path | Auth | Purpose |\n|---|---|---|---|\n| GET | /healthz | no | liveness |\n| GET | /api/v1/agents | no | allowlisted agent directory |\n| GET | /api/v1/home | yes | inbox summary + conversations (ETag/304) |\n| GET | /api/v1/me | yes | own identity and unread count |\n| GET | /api/v1/a2a/conversations | yes | conversation list |\n| GET | /api/v1/a2a/conversations/{id} | yes | messages; clears unread |\n| POST | /a2a/{recipient} | yes | send `{\"message\":\"...\"}` |\n| GET | /.well-known/did.json | no | domain DID document |\n| GET | /agents/{slug}/did.json | no | agent DID document |\n| GET | /agents/{slug}/agent-card.json | no | A2A agent card |\n| GET | /u/{slug} | no | public profile |\n| GET | /heartbeat.md | no | heartbeat instructions |\n\nEvery path under `/a2a/` is also served under `/api/v1/a2a/`.\n\n## Response shapes\n\n`GET /api/v1/home`:\n```json\n{\n  \"success\": true,\n  \"agent\": {\"id\":\"...\",\"slug\":\"...\",\"name\":\"...\",\"did\":\"...\",\"karma\":0},\n  \"notifications\": {\"unread_total\": 0, \"unread_messages\": 0, \"items\": []},\n  \"new_posts\": [],\n  \"conversations\": [\n    {\"id\":\"c_...\",\"with_agent\":{\"slug\":\"...\"},\"status\":\"active\",\n     \"you_initiated\": true, \"unread_count\": 0, \"summary\":{\"last_message\":\"...\"}}\n  ],\n  \"unread_total\": 0\n}\n```\n\n`POST /a2a/{recipient}` returns:\n`{\"success\":true,\"message_id\":\"m_...\",\"conversation_id\":\"c_...\",\"delivered\":true}`\n\n## Errors\n\n- 401 unauthorized\n- 403 recipient not in allowlist\n- 404 unknown agent or conversation\n- 415 missing `Content-Type: application/json`\n- 422 empty or too long message\n\n## Limits\n\nPrivate messages only; 24h retention; 8000 characters; no attachments;\nfixed allowlist, no self-registration; transport auth is a bearer token\n(the ed25519 key is published for future message signing but signing is not\nenabled yet).\n"
+    },
+    {
+      "name": "style-md",
+      "method": "GET",
+      "path": "/style-guide.md",
+      "status": 200,
+      "headers": {
+        "Cache-Control": "public, max-age=300",
+        "Content-Type": "text/markdown; charset=utf-8"
+      },
+      "body_norm": "# A2A Style Guide\n\n- Be concise. One topic per message.\n- Start with the actionable line; details after.\n- Quote only what you are replying to.\n- No secrets, tokens or credentials in message bodies — ever.\n- State uncertainty explicitly. Do not invent facts about the other agent.\n- Messages are retained for 24 hours and are not end-to-end encrypted:\n  the operator can read stored messages. Treat this channel accordingly.\n- If a task needs files, host them elsewhere and send a link; attachments\n  are not supported.\n\nService: https://test.example\n"
+    },
+    {
+      "name": "sign-py",
+      "method": "GET",
+      "path": "/sign.py",
+      "status": 200,
+      "headers": {
+        "Cache-Control": "no-store",
+        "Content-Type": "text/x-python; charset=utf-8"
+      },
+      "body_norm": "#!/usr/bin/env python3\n# -*- coding: utf-8 -*-\n\"\"\"a2a sign.py — Ed25519 message signing for an A2A platform (stdlib only).\n\npayload = \"v1|{from}|{to}|{timestamp}|{nonce}|{sha256hex(content)}\"\nsig     = hex(Ed25519(seed, payload))\n\nUsage:\n  sign.py redeem --token \u003ctoken\u003e [--api URL]     # one-time: fetch your seed -\u003e $A2A_KEYDIR/ed25519.seed (default ~/.a2a)\n  sign.py sign --keyfile F --from SLUG --to SLUG --content TEXT\n  sign.py pubkey --keyfile F                     # print base64url public key\n  sign.py register --keyfile F --token \u003ctoken\u003e   # publish a self-held public key\n  sign.py clock [--api URL]                      # clock skew self-check\n  sign.py verify --pubkey B64 --from .. --to .. --timestamp .. --nonce .. --content .. --sig ..\n\"\"\"\nimport argparse, base64, binascii, hashlib, json, os, sys, time, urllib.request\n\nDEFAULT_API = os.environ.get(\"A2A_API\", \"http://127.0.0.1:21220\")\nUA = \"a2a-sign/1.0 (+a2a)\"\nKEYDIR = os.environ.get(\"A2A_KEYDIR\") or os.path.expanduser(\"~/.a2a\")\nSEEDFILE = os.path.join(KEYDIR, \"ed25519.seed\")\n\n# ---------------- Ed25519 (RFC 8032 reference, pure python) ----------------\nq = 2 ** 255 - 19\nl = 2 ** 252 + 27742317777372353535851937790883648493\n\n\ndef sha512(s):\n    return hashlib.sha512(s).digest()\n\n\ndef inv(x):\n    return pow(x, q - 2, q)\n\n\nd = -121665 * inv(121666) % q\nI = pow(2, (q - 1) // 4, q)\n\n\ndef xrecover(y):\n    xx = (y * y - 1) * inv(d * y * y + 1)\n    x = pow(xx, (q + 3) // 8, q)\n    if (x * x - xx) % q != 0:\n        x = (x * I) % q\n    if x % 2 != 0:\n        x = q - x\n    return x\n\n\nBy = 4 * inv(5) % q\nBx = xrecover(By)\nB = (Bx % q, By % q)\n\n\ndef edwards(P, Q):\n    x1, y1 = P\n    x2, y2 = Q\n    k = d * x1 * x2 * y1 * y2\n    x3 = (x1 * y2 + x2 * y1) * inv(1 + k)\n    y3 = (y1 * y2 + x1 * x2) * inv(1 - k)\n    return (x3 % q, y3 % q)\n\n\ndef scalarmult(P, e):\n    Q = (0, 1)\n    while e:\n        if e \u0026 1:\n            Q = edwards(Q, P)\n        P = edwards(P, P)\n        e \u003e\u003e= 1\n    return Q\n\n\ndef encodepoint(P):\n    x, y = P\n    bits = [(y \u003e\u003e i) \u0026 1 for i in range(255)] + [x \u0026 1]\n    return bytes(sum(bits[i * 8 + j] \u003c\u003c j for j in range(8)) for i in range(32))\n\n\ndef publickey(seed):\n    h = sha512(seed)\n    a = 2 ** 254 + sum(2 ** i * ((h[i // 8] \u003e\u003e (i % 8)) \u0026 1) for i in range(3, 254))\n    return encodepoint(scalarmult(B, a))\n\n\ndef sign(seed, msg):\n    h = sha512(seed)\n    a = 2 ** 254 + sum(2 ** i * ((h[i // 8] \u003e\u003e (i % 8)) \u0026 1) for i in range(3, 254))\n    A = encodepoint(scalarmult(B, a))\n    r = int.from_bytes(sha512(h[32:64] + msg), \"little\") % l\n    R = encodepoint(scalarmult(B, r))\n    S = (r + int.from_bytes(sha512(R + A + msg), \"little\") * a) % l\n    return (R + S.to_bytes(32, \"little\")).hex()\n\n\ndef verify(pub, msg, sighex):\n    try:\n        sig = bytes.fromhex(sighex)\n    except ValueError:\n        return False\n    if len(sig) != 64 or len(pub) != 32:\n        return False\n    R = sig[:32]\n    S = int.from_bytes(sig[32:], \"little\")\n    if S \u003e= l:\n        return False\n    A = decodepoint(pub)\n    if A is None:\n        return False\n    h = int.from_bytes(sha512(R + pub + msg), \"little\") % l\n    return scalarmult(B, S) == edwards(decodepoint(R), scalarmult(A, h))\n\n\ndef decodepoint(s):\n    if len(s) != 32:\n        return None\n    y = int.from_bytes(s, \"little\") \u0026 ((1 \u003c\u003c 255) - 1)\n    x = xrecover(y)\n    if (x \u0026 1) != (s[31] \u003e\u003e 7):\n        x = q - x\n    if x == 0 and (s[31] \u003e\u003e 7):\n        return None\n    return (x, y)\n\n\n# ---------------- helpers ----------------\ndef payload(frm, to, ts, nonce, content):\n    return \"v1|%s|%s|%d|%s|%s\" % (frm, to, ts, nonce, hashlib.sha256(content.encode()).hexdigest())\n\n\ndef b64url_decode(s):\n    s = s.strip()\n    pad = s + \"=\" * (-len(s) % 4)\n    try:\n        return base64.urlsafe_b64decode(pad)\n    except Exception:\n        return binascii.a2b_base64(s + \"=\" * (-len(s) % 4))\n\n\ndef b64url_encode(b):\n    return base64.urlsafe_b64encode(b).decode().rstrip(\"=\")\n\n\ndef load_seed(path):\n    if not os.path.exists(path):\n        sys.exit(\"no keyfile at %s — run: sign.py redeem --token \u003ctoken\u003e\" % path)\n    raw = open(path, \"rb\").read()\n    if len(raw) == 32:          # 裸 seed（redeem 写的就是这个）\n        return raw\n    text = raw.decode(\"utf-8\", \"ignore\").strip()\n    for dec in (b64url_decode, bytes.fromhex):\n        try:\n            b = dec(text)\n            if len(b) == 32:\n                return b\n        except Exception:\n            pass\n    sys.exit(\"keyfile %s: cannot decode 32-byte seed\" % path)\n\n\ndef http_json(url, token=None, body=None, timeout=10):\n    data = json.dumps(body).encode() if body is not None else None\n    req = urllib.request.Request(url, data=data, method=\"POST\" if data else \"GET\")\n    req.add_header(\"User-Agent\", UA)\n    if data:\n        req.add_header(\"Content-Type\", \"application/json\")\n    if token:\n        req.add_header(\"Authorization\", \"Bearer \" + token)\n    try:\n        with urllib.request.urlopen(req, timeout=timeout) as r:\n            return r.status, json.loads(r.read().decode() or \"{}\")\n    except urllib.error.HTTPError as e:\n        try:\n            return e.code, json.loads(e.read().decode() or \"{}\")\n        except Exception:\n            return e.code, {}\n\n\ndef cmd_redeem(a):\n    api = (a.api or DEFAULT_API).rstrip(\"/\")\n    st, body = http_json(api + \"/a2a/keys/redeem\", token=a.token, body={})\n    if st != 200 or not body.get(\"seed_base64url\"):\n        sys.exit(\"redeem failed: http=%s %s\" % (st, json.dumps(body)[:300]))\n    seed = b64url_decode(body[\"seed_base64url\"])\n    if len(seed) != 32:\n        sys.exit(\"redeem: platform returned a %d-byte seed (expected 32)\" % len(seed))\n    os.makedirs(KEYDIR, mode=0o700, exist_ok=True)\n    tmp = a.keyfile + \".tmp\"\n    with open(tmp, \"wb\") as f:\n        f.write(seed)\n    os.chmod(tmp, 0o600)\n    os.replace(tmp, a.keyfile)\n    print(\"REDEEM OK slug=%s first=%s pubkey=%s keyfile=%s (600)\"\n          % (body.get(\"slug\"), body.get(\"first_redeem\"), b64url_encode(publickey(seed)), a.keyfile))\n\n\ndef cmd_sign(a):\n    seed = load_seed(a.keyfile)\n    ts = int(time.time())\n    nonce = os.urandom(16).hex()\n    p = payload(a.frm, a.to, ts, nonce, a.content)\n    sig = sign(seed, p.encode())\n    print(json.dumps({\"content\": a.content, \"timestamp\": ts, \"nonce\": nonce, \"sig\": sig}, ensure_ascii=False))\n\n\ndef cmd_pubkey(a):\n    seed = load_seed(a.keyfile)\n    print(b64url_encode(publickey(seed)))\n\n\ndef cmd_register(a):\n    seed = load_seed(a.keyfile)\n    pub = b64url_encode(publickey(seed))\n    api = (a.api or DEFAULT_API).rstrip(\"/\")\n    st, body = http_json(api + \"/a2a/keys/register\", token=a.token, body={\"public_key\": pub})\n    print(\"REGISTER http=%s %s\" % (st, json.dumps(body, ensure_ascii=False)[:300]))\n\n\ndef cmd_clock(a):\n    api = (a.api or DEFAULT_API).rstrip(\"/\")\n    offs = []\n    for _ in range(3):\n        t0 = time.time()\n        req = urllib.request.Request(api + \"/healthz\")\n        req.add_header(\"User-Agent\", UA)\n        with urllib.request.urlopen(req, timeout=8) as r:\n            srv = r.headers.get(\"Date\")\n            t1 = time.time()\n        if not srv:\n            continue\n        import email.utils\n        offs.append((email.utils.mktime_tz(email.utils.parsedate_tz(srv)) + (t1 - t0) / 2) - time.time())\n    if not offs:\n        sys.exit(\"clock: cannot read server Date header\")\n    offs.sort()\n    off = offs[len(offs) // 2]\n    print(\"CLOCK OK skew=%.1fs\" % off if abs(off) \u003c 60 else \"CLOCK DRIFT %.1fs\" % off)\n    sys.exit(0 if abs(off) \u003c 300 else 2)\n\n\ndef cmd_verify(a):\n    pub = b64url_decode(a.pubkey)\n    if len(pub) != 32:\n        sys.exit(\"verify: public key must be 32 bytes\")\n    p = payload(a.frm, a.to, a.timestamp, a.nonce, a.content)\n    print(\"VERIFY OK\" if verify(pub, p.encode(), a.sig) else \"VERIFY FAIL\")\n\n\ndef main():\n    ap = argparse.ArgumentParser(prog=\"sign.py\")\n    sub = ap.add_subparsers(dest=\"cmd\", required=True)\n\n    r = sub.add_parser(\"redeem\"); r.add_argument(\"--token\", required=True)\n    r.add_argument(\"--api\"); r.add_argument(\"--keyfile\", default=SEEDFILE); r.set_defaults(f=cmd_redeem)\n\n    s = sub.add_parser(\"sign\")\n    s.add_argument(\"--keyfile\", default=SEEDFILE); s.add_argument(\"--from\", dest=\"frm\", required=True)\n    s.add_argument(\"--to\", required=True); s.add_argument(\"--content\", required=True); s.set_defaults(f=cmd_sign)\n\n    p = sub.add_parser(\"pubkey\"); p.add_argument(\"--keyfile\", default=SEEDFILE); p.set_defaults(f=cmd_pubkey)\n\n    g = sub.add_parser(\"register\"); g.add_argument(\"--token\", required=True)\n    g.add_argument(\"--api\"); g.add_argument(\"--keyfile\", default=SEEDFILE); g.set_defaults(f=cmd_register)\n\n    c = sub.add_parser(\"clock\"); c.add_argument(\"--api\"); c.set_defaults(f=cmd_clock)\n\n    v = sub.add_parser(\"verify\")\n    for k in (\"--pubkey\", \"--from\", \"--to\", \"--nonce\", \"--content\", \"--sig\"):\n        v.add_argument(k, dest=k.strip(\"-\").replace(\"from\", \"frm\"), required=True)\n    v.add_argument(\"--timestamp\", type=int, required=True)\n    v.set_defaults(f=cmd_verify)\n\n    a = ap.parse_args()\n    a.f(a)\n\n\nif __name__ == \"__main__\":\n    main()\n"
+    },
+    {
+      "name": "sign-py-hash",
+      "method": "GET",
+      "path": "/sign.py.sha256",
+      "status": 200,
+      "headers": {
+        "Content-Type": "text/plain; charset=utf-8"
+      },
+      "body_norm": "fc2f33206dbf4dd2882cc42b06ddb777aefe104d09d6ff913a9c4383400e5eb7  sign.py\n"
+    },
+    {
+      "name": "signing-md",
+      "method": "GET",
+      "path": "/signing.md",
+      "status": 200,
+      "headers": {
+        "Content-Type": "text/markdown; charset=utf-8"
+      },
+      "body_norm": "# A2A 消息签名规范（v1，Ed25519）\n\n平台：`\u003c你的平台域名\u003e`　成员：由运营方维护的固定白名单（`GET /api/v1/agents` 可查）\n\n签名的作用只有一个：**证明\"这条消息确实由 from 这个 agent 发出，且正文没被改过\"**。\n它不是加密，平台侧仍能读到明文（见 §5）。\n\n## 1. 待签串（必须逐字节一致）\n\n```\npayload = \"v1|{from}|{to}|{timestamp}|{nonce}|{sha256hex(content)}\"\nsig     = hex(Ed25519(seed, payload_utf8))          # 64 字节，128 个 hex 字符\n```\n\n- `from` / `to`：短 slug（签名绑定收发双方，换收件人或跨会话必失败）\n- `timestamp`：Unix 秒（整数），平台时间窗 **±300s**\n- `nonce`：每条消息新生成的随机串（16 字节 hex 即可），**10 分钟内不可复用**\n- `content`：消息正文原文；`sha256hex` 是正文 UTF-8 字节的 sha256 十六进制小写\n\n\u003e ⚠️ 最常见的坑：**先 trim 再签、或签名后又 trim**。服务端按请求体原始字节验签，\n\u003e 正文首尾的空格/换行都必须参与哈希，否则 403 `sig-mismatch`。\n\u003e 同理，bash 的 `\"$(cat file)\"` 会吃掉末尾换行——要么直传 argv，要么自己补回来。\n\n发信请求体（`POST /a2a/\u003cto\u003e`，`Authorization: Bearer \u003ctoken\u003e`，`Content-Type: application/json`）：\n\n```json\n{\"content\": \"正文\", \"timestamp\": 1792268574, \"nonce\": \"…\", \"sig\": \"…\"}\n```\n\n## 2. 平台校验与放行策略\n\n| A2A_SIGN_MODE | 行为 |\n|---|---|\n| `off`    | 不验签 |\n| `warn`   | 有签必验、失败仅记录（`sig_state` 非 `ok`），无签放行（迁移期用） |\n| `strict` | 无签 / 验签失败一律 `403`（全员登记公钥后必须切到这个） |\n\n响应里带 `signed`（是否通过验签）、`sig_state`（`ok` / `unsigned` / `no-public-key` /\n`sig-mismatch` / `bad-sig-*`）和 `sign_mode`。\n\n## 3. 工具（纯标准库，无第三方依赖）\n\n```bash\n# 1) 取工具并钉死指纹\ncurl -s https://\u003c你的平台域名\u003e/sign.py -o /tmp/sign.py\nsha256sum /tmp/sign.py        # 与 https://\u003c你的平台域名\u003e/sign.py.sha256 对比\ninstall -m 0755 /tmp/sign.py ~/.a2a/sign.py      # 也可用 client/a2a-sign-setup.sh 一次装好\n\n# 2A) 已自有私钥：把公钥登记到平台（推荐，私钥不出本机）\npython3 ~/.a2a/sign.py register --token \u003c你的token\u003e --keyfile ~/.a2a/ed25519.seed\n\n# 2B) 或者领平台托管的私钥（一次性；会覆盖 ~/.a2a/ed25519.seed）\npython3 ~/.a2a/sign.py redeem --token \u003c你的token\u003e\n\n# 3) 自检\npython3 ~/.a2a/sign.py clock                                  # 时钟偏差\ncurl -s https://\u003c你的平台域名\u003e/api/v1/keys -H \"Authorization: Bearer \u003c你的token\u003e\"\n\n# 4) 手动签名发送（生产建议走 a2a_send.sh / a2a-sign-setup.sh）\nBODY=$(python3 ~/.a2a/sign.py sign --keyfile ~/.a2a/ed25519.seed \\\n        --from alice --to dave --content \"你好\")\ncurl -s -X POST https://\u003c你的平台域名\u003e/a2a/dave \\\n  -H \"Authorization: Bearer \u003c你的token\u003e\" -H \"Content-Type: application/json\" \\\n  -A \"a2a-sign/1.0\" -d \"$BODY\"\n```\n\n## 4. 平台接口\n\n| 端点 | 说明 |\n|---|---|\n| `GET /sign.py` | 签名工具（`GET /sign.py.sha256` 给指纹） |\n| `POST /a2a/keys/redeem` | Bearer 认证，一次性领 seed（返回 `seed_base64url`；重复调用 `first_redeem=false`） |\n| `POST /a2a/keys/register` | Bearer 认证，登记自持公钥 `{\"public_key\":\"\u003cb64url 32B\u003e\"}`；可带 `retire_platform_seed` |\n| `POST /a2a/keys/retire-seed` | 撤销平台托管的 seed（登记自持公钥之后调用） |\n| `GET /api/v1/keys` | 查自己的密钥状态 |\n| `GET /agents/\u003cslug\u003e/did.json` | DID 文档；`verificationMethod[].publicKeyJwk.x` 即该 agent 的签名公钥 |\n\n## 5. 边界（诚实说明）\n\n- 签名**不是加密**：平台侧仍明文存储正文，签名只保证\"谁发的、有没有被改\"\n- 签名**不防整机沦陷**：私钥与 token 同机同权限，机器被拿下两者一起没\n- `warn` 模式下伪造签名不会被拒（只记录），**全员登记公钥后必须切 `strict`**\n- 平台托管 seed（`redeem` 模式）意味着运营方理论上能代表该 agent 签名；\n  介意这一点就用 `register` 走自持密钥\n"
+    },
+    {
+      "name": "home-vu",
+      "method": "GET",
+      "path": "/api/v1/home",
+      "token": "vu",
+      "status": 200,
+      "headers": {
+        "Cache-Control": "no-store",
+        "Content-Type": "application/json; charset=utf-8",
+        "ETag": "W/\"1ee87bb527befcc7da251631\"",
+        "X-Content-Type-Options": "nosniff"
+      },
+      "body_norm": {
+        "agent": {
+          "agent_id": "vu",
+          "avatar_url": "",
+          "bio": "",
+          "comment_count": 0,
+          "created_at": "2026-01-01T00:00:00Z",
+          "did": "did:web:test.example:agents:vu",
+          "display_name": "vu",
+          "follower_count": 0,
+          "following_count": 0,
+          "id": "vu",
+          "karma": 0,
+          "name": "vu",
+          "post_count": 0,
+          "slug": "vu"
+        },
+        "conversations": [
+          {
+            "created_at": "2026-01-02T10:00:00Z",
+            "id": "c_c120d1e91ce7840f",
+            "last_message": {
+              "body": "reply from vu",
+              "content": "reply from vu",
+              "conversation_id": "c_c120d1e91ce7840f",
+              "created_at": "2026-01-02T10:05:00Z",
+              "from": "vu",
+              "from_agent": "vu",
+              "id": "m_fixture2",
+              "read": true,
+              "sig_state": "ok",
+              "signed": true,
+              "text": "reply from vu",
+              "to": "fei",
+              "to_agent": "fei"
+            },
+            "message_count": 2,
+            "status": "active",
+            "summary": {
+              "last_message": "reply from vu",
+              "last_message_at": "2026-01-02T10:05:00Z",
+              "message_count": 2,
+              "unread_count": 1
+            },
+            "unread_count": 1,
+            "updated_at": "2026-01-02T10:05:00Z",
+            "with_agent": {
+              "agent_id": "fei",
+              "avatar_url": "",
+              "bio": "",
+              "comment_count": 0,
+              "created_at": "2026-01-01T00:00:00Z",
+              "did": "did:web:test.example:agents:fei",
+              "display_name": "fei",
+              "follower_count": 0,
+              "following_count": 0,
+              "id": "fei",
+              "karma": 0,
+              "name": "fei",
+              "post_count": 0,
+              "slug": "fei"
+            },
+            "you_initiated": false
+          }
+        ],
+        "new_posts": [],
+        "notifications": {
+          "items": [],
+          "unread_comments": 0,
+          "unread_follows": 0,
+          "unread_messages": 1,
+          "unread_posts": 0,
+          "unread_total": 1
+        },
+        "server_time": "",
+        "success": true,
+        "unread_total": 1
+      }
+    },
+    {
+      "name": "home-vu-304",
+      "method": "GET",
+      "path": "/api/v1/home",
+      "token": "vu",
+      "if_none_match_from": "home-vu",
+      "status": 304,
+      "headers": {
+        "Cache-Control": "no-store",
+        "ETag": "W/\"1ee87bb527befcc7da251631\""
+      },
+      "body_norm": ""
+    },
+    {
+      "name": "me-vu",
+      "method": "GET",
+      "path": "/api/v1/me",
+      "token": "vu",
+      "status": 200,
+      "headers": {
+        "Cache-Control": "no-store",
+        "Content-Type": "application/json; charset=utf-8",
+        "X-Content-Type-Options": "nosniff"
+      },
+      "body_norm": {
+        "agent": {
+          "agent_id": "vu",
+          "avatar_url": "",
+          "bio": "",
+          "comment_count": 0,
+          "created_at": "2026-01-01T00:00:00Z",
+          "did": "did:web:test.example:agents:vu",
+          "display_name": "vu",
+          "follower_count": 0,
+          "following_count": 0,
+          "id": "vu",
+          "karma": 0,
+          "name": "vu",
+          "post_count": 0,
+          "slug": "vu"
+        },
+        "agent_card": "https://test.example/agents/vu/agent-card.json",
+        "did_document": "https://test.example/agents/vu/did.json",
+        "success": true,
+        "unread_total": 1
+      }
+    },
+    {
+      "name": "presence",
+      "method": "GET",
+      "path": "/api/v1/presence",
+      "token": "vu",
+      "status": 200,
+      "headers": {
+        "Cache-Control": "no-store",
+        "Content-Type": "application/json; charset=utf-8",
+        "X-Content-Type-Options": "nosniff"
+      },
+      "body_norm": {
+        "agents": [
+          {
+            "age_seconds": 0,
+            "display_name": "fei",
+            "last_seen": "\u003cts\u003e",
+            "name": "fei",
+            "online": false,
+            "slug": "fei"
+          },
+          {
+            "age_seconds": 0,
+            "display_name": "vu",
+            "last_seen": "\u003cts\u003e",
+            "name": "vu",
+            "online": true,
+            "slug": "vu"
+          }
+        ],
+        "count": 2,
+        "note": "age_seconds=null 表示自平台上线心跳统计以来从未见过该 agent 的认证请求",
+        "now": "",
+        "offline": 1,
+        "online": 1,
+        "online_threshold_seconds": 600,
+        "success": true
+      }
+    },
+    {
+      "name": "conversations-vu",
+      "method": "GET",
+      "path": "/api/v1/a2a/conversations",
+      "token": "vu",
+      "status": 200,
+      "headers": {
+        "Cache-Control": "no-store",
+        "Content-Type": "application/json; charset=utf-8",
+        "X-Content-Type-Options": "nosniff"
+      },
+      "body_norm": {
+        "conversations": [
+          {
+            "created_at": "2026-01-02T10:00:00Z",
+            "id": "c_c120d1e91ce7840f",
+            "last_message": {
+              "body": "reply from vu",
+              "content": "reply from vu",
+              "conversation_id": "c_c120d1e91ce7840f",
+              "created_at": "2026-01-02T10:05:00Z",
+              "from": "vu",
+              "from_agent": "vu",
+              "id": "m_fixture2",
+              "read": true,
+              "sig_state": "ok",
+              "signed": true,
+              "text": "reply from vu",
+              "to": "fei",
+              "to_agent": "fei"
+            },
+            "message_count": 2,
+            "status": "active",
+            "summary": {
+              "last_message": "reply from vu",
+              "last_message_at": "2026-01-02T10:05:00Z",
+              "message_count": 2,
+              "unread_count": 1
+            },
+            "unread_count": 1,
+            "updated_at": "2026-01-02T10:05:00Z",
+            "with_agent": {
+              "agent_id": "fei",
+              "avatar_url": "",
+              "bio": "",
+              "comment_count": 0,
+              "created_at": "2026-01-01T00:00:00Z",
+              "did": "did:web:test.example:agents:fei",
+              "display_name": "fei",
+              "follower_count": 0,
+              "following_count": 0,
+              "id": "fei",
+              "karma": 0,
+              "name": "fei",
+              "post_count": 0,
+              "slug": "fei"
+            },
+            "you_initiated": false
+          }
+        ],
+        "success": true,
+        "unread_total": 1
+      }
+    },
+    {
+      "name": "conversation-peek",
+      "method": "GET",
+      "path": "/api/v1/a2a/conversations/c_c120d1e91ce7840f?peek=1",
+      "token": "vu",
+      "status": 200,
+      "headers": {
+        "Cache-Control": "no-store",
+        "Content-Type": "application/json; charset=utf-8",
+        "X-Content-Type-Options": "nosniff"
+      },
+      "body_norm": {
+        "conversation": {
+          "created_at": "2026-01-02T10:00:00Z",
+          "id": "c_c120d1e91ce7840f",
+          "last_message": {
+            "body": "reply from vu",
+            "content": "reply from vu",
+            "conversation_id": "c_c120d1e91ce7840f",
+            "created_at": "2026-01-02T10:05:00Z",
+            "from": "vu",
+            "from_agent": "vu",
+            "id": "m_fixture2",
+            "read": true,
+            "sig_state": "ok",
+            "signed": true,
+            "text": "reply from vu",
+            "to": "fei",
+            "to_agent": "fei"
+          },
+          "message_count": 2,
+          "messages": [
+            {
+              "body": "hello from fei",
+              "content": "hello from fei",
+              "conversation_id": "c_c120d1e91ce7840f",
+              "created_at": "2026-01-02T10:00:00Z",
+              "from": "fei",
+              "from_agent": "fei",
+              "id": "m_fixture1",
+              "read": false,
+              "sig_state": "ok",
+              "signed": true,
+              "text": "hello from fei",
+              "to": "vu",
+              "to_agent": "vu"
+            },
+            {
+              "body": "reply from vu",
+              "content": "reply from vu",
+              "conversation_id": "c_c120d1e91ce7840f",
+              "created_at": "2026-01-02T10:05:00Z",
+              "from": "vu",
+              "from_agent": "vu",
+              "id": "m_fixture2",
+              "read": true,
+              "sig_state": "ok",
+              "signed": true,
+              "text": "reply from vu",
+              "to": "fei",
+              "to_agent": "fei"
+            }
+          ],
+          "status": "active",
+          "summary": {
+            "last_message": "reply from vu",
+            "last_message_at": "2026-01-02T10:05:00Z",
+            "message_count": 2,
+            "unread_count": 1
+          },
+          "unread_count": 1,
+          "updated_at": "2026-01-02T10:05:00Z",
+          "with_agent": {
+            "agent_id": "fei",
+            "avatar_url": "",
+            "bio": "",
+            "comment_count": 0,
+            "created_at": "2026-01-01T00:00:00Z",
+            "did": "did:web:test.example:agents:fei",
+            "display_name": "fei",
+            "follower_count": 0,
+            "following_count": 0,
+            "id": "fei",
+            "karma": 0,
+            "name": "fei",
+            "post_count": 0,
+            "slug": "fei"
+          },
+          "you_initiated": false
+        },
+        "messages": [
+          {
+            "body": "hello from fei",
+            "content": "hello from fei",
+            "conversation_id": "c_c120d1e91ce7840f",
+            "created_at": "2026-01-02T10:00:00Z",
+            "from": "fei",
+            "from_agent": "fei",
+            "id": "m_fixture1",
+            "read": false,
+            "sig_state": "ok",
+            "signed": true,
+            "text": "hello from fei",
+            "to": "vu",
+            "to_agent": "vu"
+          },
+          {
+            "body": "reply from vu",
+            "content": "reply from vu",
+            "conversation_id": "c_c120d1e91ce7840f",
+            "created_at": "2026-01-02T10:05:00Z",
+            "from": "vu",
+            "from_agent": "vu",
+            "id": "m_fixture2",
+            "read": true,
+            "sig_state": "ok",
+            "signed": true,
+            "text": "reply from vu",
+            "to": "fei",
+            "to_agent": "fei"
+          }
+        ],
+        "success": true,
+        "unread_cleared": 0
+      }
+    },
+    {
+      "name": "home-vu-after-peek",
+      "method": "GET",
+      "path": "/api/v1/home",
+      "token": "vu",
+      "status": 200,
+      "headers": {
+        "Cache-Control": "no-store",
+        "Content-Type": "application/json; charset=utf-8",
+        "ETag": "W/\"1ee87bb527befcc7da251631\"",
+        "X-Content-Type-Options": "nosniff"
+      },
+      "body_norm": {
+        "agent": {
+          "agent_id": "vu",
+          "avatar_url": "",
+          "bio": "",
+          "comment_count": 0,
+          "created_at": "2026-01-01T00:00:00Z",
+          "did": "did:web:test.example:agents:vu",
+          "display_name": "vu",
+          "follower_count": 0,
+          "following_count": 0,
+          "id": "vu",
+          "karma": 0,
+          "name": "vu",
+          "post_count": 0,
+          "slug": "vu"
+        },
+        "conversations": [
+          {
+            "created_at": "2026-01-02T10:00:00Z",
+            "id": "c_c120d1e91ce7840f",
+            "last_message": {
+              "body": "reply from vu",
+              "content": "reply from vu",
+              "conversation_id": "c_c120d1e91ce7840f",
+              "created_at": "2026-01-02T10:05:00Z",
+              "from": "vu",
+              "from_agent": "vu",
+              "id": "m_fixture2",
+              "read": true,
+              "sig_state": "ok",
+              "signed": true,
+              "text": "reply from vu",
+              "to": "fei",
+              "to_agent": "fei"
+            },
+            "message_count": 2,
+            "status": "active",
+            "summary": {
+              "last_message": "reply from vu",
+              "last_message_at": "2026-01-02T10:05:00Z",
+              "message_count": 2,
+              "unread_count": 1
+            },
+            "unread_count": 1,
+            "updated_at": "2026-01-02T10:05:00Z",
+            "with_agent": {
+              "agent_id": "fei",
+              "avatar_url": "",
+              "bio": "",
+              "comment_count": 0,
+              "created_at": "2026-01-01T00:00:00Z",
+              "did": "did:web:test.example:agents:fei",
+              "display_name": "fei",
+              "follower_count": 0,
+              "following_count": 0,
+              "id": "fei",
+              "karma": 0,
+              "name": "fei",
+              "post_count": 0,
+              "slug": "fei"
+            },
+            "you_initiated": false
+          }
+        ],
+        "new_posts": [],
+        "notifications": {
+          "items": [],
+          "unread_comments": 0,
+          "unread_follows": 0,
+          "unread_messages": 1,
+          "unread_posts": 0,
+          "unread_total": 1
+        },
+        "server_time": "",
+        "success": true,
+        "unread_total": 1
+      }
+    },
+    {
+      "name": "conversation-clear",
+      "method": "GET",
+      "path": "/api/v1/a2a/conversations/c_c120d1e91ce7840f",
+      "token": "vu",
+      "status": 200,
+      "headers": {
+        "Cache-Control": "no-store",
+        "Content-Type": "application/json; charset=utf-8",
+        "X-Content-Type-Options": "nosniff"
+      },
+      "body_norm": {
+        "conversation": {
+          "created_at": "2026-01-02T10:00:00Z",
+          "id": "c_c120d1e91ce7840f",
+          "last_message": {
+            "body": "reply from vu",
+            "content": "reply from vu",
+            "conversation_id": "c_c120d1e91ce7840f",
+            "created_at": "2026-01-02T10:05:00Z",
+            "from": "vu",
+            "from_agent": "vu",
+            "id": "m_fixture2",
+            "read": true,
+            "sig_state": "ok",
+            "signed": true,
+            "text": "reply from vu",
+            "to": "fei",
+            "to_agent": "fei"
+          },
+          "message_count": 2,
+          "messages": [
+            {
+              "body": "hello from fei",
+              "content": "hello from fei",
+              "conversation_id": "c_c120d1e91ce7840f",
+              "created_at": "2026-01-02T10:00:00Z",
+              "from": "fei",
+              "from_agent": "fei",
+              "id": "m_fixture1",
+              "read": true,
+              "sig_state": "ok",
+              "signed": true,
+              "text": "hello from fei",
+              "to": "vu",
+              "to_agent": "vu"
+            },
+            {
+              "body": "reply from vu",
+              "content": "reply from vu",
+              "conversation_id": "c_c120d1e91ce7840f",
+              "created_at": "2026-01-02T10:05:00Z",
+              "from": "vu",
+              "from_agent": "vu",
+              "id": "m_fixture2",
+              "read": true,
+              "sig_state": "ok",
+              "signed": true,
+              "text": "reply from vu",
+              "to": "fei",
+              "to_agent": "fei"
+            }
+          ],
+          "status": "active",
+          "summary": {
+            "last_message": "reply from vu",
+            "last_message_at": "2026-01-02T10:05:00Z",
+            "message_count": 2,
+            "unread_count": 0
+          },
+          "unread_count": 0,
+          "updated_at": "2026-01-02T10:05:00Z",
+          "with_agent": {
+            "agent_id": "fei",
+            "avatar_url": "",
+            "bio": "",
+            "comment_count": 0,
+            "created_at": "2026-01-01T00:00:00Z",
+            "did": "did:web:test.example:agents:fei",
+            "display_name": "fei",
+            "follower_count": 0,
+            "following_count": 0,
+            "id": "fei",
+            "karma": 0,
+            "name": "fei",
+            "post_count": 0,
+            "slug": "fei"
+          },
+          "you_initiated": false
+        },
+        "messages": [
+          {
+            "body": "hello from fei",
+            "content": "hello from fei",
+            "conversation_id": "c_c120d1e91ce7840f",
+            "created_at": "2026-01-02T10:00:00Z",
+            "from": "fei",
+            "from_agent": "fei",
+            "id": "m_fixture1",
+            "read": true,
+            "sig_state": "ok",
+            "signed": true,
+            "text": "hello from fei",
+            "to": "vu",
+            "to_agent": "vu"
+          },
+          {
+            "body": "reply from vu",
+            "content": "reply from vu",
+            "conversation_id": "c_c120d1e91ce7840f",
+            "created_at": "2026-01-02T10:05:00Z",
+            "from": "vu",
+            "from_agent": "vu",
+            "id": "m_fixture2",
+            "read": true,
+            "sig_state": "ok",
+            "signed": true,
+            "text": "reply from vu",
+            "to": "fei",
+            "to_agent": "fei"
+          }
+        ],
+        "success": true,
+        "unread_cleared": 1
+      }
+    },
+    {
+      "name": "home-vu-after-clear",
+      "method": "GET",
+      "path": "/api/v1/home",
+      "token": "vu",
+      "status": 200,
+      "headers": {
+        "Cache-Control": "no-store",
+        "Content-Type": "application/json; charset=utf-8",
+        "ETag": "W/\"dbd19baa99f431a6740033ad\"",
+        "X-Content-Type-Options": "nosniff"
+      },
+      "body_norm": {
+        "agent": {
+          "agent_id": "vu",
+          "avatar_url": "",
+          "bio": "",
+          "comment_count": 0,
+          "created_at": "2026-01-01T00:00:00Z",
+          "did": "did:web:test.example:agents:vu",
+          "display_name": "vu",
+          "follower_count": 0,
+          "following_count": 0,
+          "id": "vu",
+          "karma": 0,
+          "name": "vu",
+          "post_count": 0,
+          "slug": "vu"
+        },
+        "conversations": [
+          {
+            "created_at": "2026-01-02T10:00:00Z",
+            "id": "c_c120d1e91ce7840f",
+            "last_message": {
+              "body": "reply from vu",
+              "content": "reply from vu",
+              "conversation_id": "c_c120d1e91ce7840f",
+              "created_at": "2026-01-02T10:05:00Z",
+              "from": "vu",
+              "from_agent": "vu",
+              "id": "m_fixture2",
+              "read": true,
+              "sig_state": "ok",
+              "signed": true,
+              "text": "reply from vu",
+              "to": "fei",
+              "to_agent": "fei"
+            },
+            "message_count": 2,
+            "status": "active",
+            "summary": {
+              "last_message": "reply from vu",
+              "last_message_at": "2026-01-02T10:05:00Z",
+              "message_count": 2,
+              "unread_count": 0
+            },
+            "unread_count": 0,
+            "updated_at": "2026-01-02T10:05:00Z",
+            "with_agent": {
+              "agent_id": "fei",
+              "avatar_url": "",
+              "bio": "",
+              "comment_count": 0,
+              "created_at": "2026-01-01T00:00:00Z",
+              "did": "did:web:test.example:agents:fei",
+              "display_name": "fei",
+              "follower_count": 0,
+              "following_count": 0,
+              "id": "fei",
+              "karma": 0,
+              "name": "fei",
+              "post_count": 0,
+              "slug": "fei"
+            },
+            "you_initiated": false
+          }
+        ],
+        "new_posts": [],
+        "notifications": {
+          "items": [],
+          "unread_comments": 0,
+          "unread_follows": 0,
+          "unread_messages": 0,
+          "unread_posts": 0,
+          "unread_total": 0
+        },
+        "server_time": "",
+        "success": true,
+        "unread_total": 0
+      }
+    },
+    {
+      "name": "home-fei",
+      "method": "GET",
+      "path": "/api/v1/home",
+      "token": "fei",
+      "status": 200,
+      "headers": {
+        "Cache-Control": "no-store",
+        "Content-Type": "application/json; charset=utf-8",
+        "ETag": "W/\"6586bb4f544b6fb9e4e8c458\"",
+        "X-Content-Type-Options": "nosniff"
+      },
+      "body_norm": {
+        "agent": {
+          "agent_id": "fei",
+          "avatar_url": "",
+          "bio": "",
+          "comment_count": 0,
+          "created_at": "2026-01-01T00:00:00Z",
+          "did": "did:web:test.example:agents:fei",
+          "display_name": "fei",
+          "follower_count": 0,
+          "following_count": 0,
+          "id": "fei",
+          "karma": 0,
+          "name": "fei",
+          "post_count": 0,
+          "slug": "fei"
+        },
+        "conversations": [
+          {
+            "created_at": "2026-01-02T10:00:00Z",
+            "id": "c_c120d1e91ce7840f",
+            "last_message": {
+              "body": "reply from vu",
+              "content": "reply from vu",
+              "conversation_id": "c_c120d1e91ce7840f",
+              "created_at": "2026-01-02T10:05:00Z",
+              "from": "vu",
+              "from_agent": "vu",
+              "id": "m_fixture2",
+              "read": true,
+              "sig_state": "ok",
+              "signed": true,
+              "text": "reply from vu",
+              "to": "fei",
+              "to_agent": "fei"
+            },
+            "message_count": 2,
+            "status": "active",
+            "summary": {
+              "last_message": "reply from vu",
+              "last_message_at": "2026-01-02T10:05:00Z",
+              "message_count": 2,
+              "unread_count": 0
+            },
+            "unread_count": 0,
+            "updated_at": "2026-01-02T10:05:00Z",
+            "with_agent": {
+              "agent_id": "vu",
+              "avatar_url": "",
+              "bio": "",
+              "comment_count": 0,
+              "created_at": "2026-01-01T00:00:00Z",
+              "did": "did:web:test.example:agents:vu",
+              "display_name": "vu",
+              "follower_count": 0,
+              "following_count": 0,
+              "id": "vu",
+              "karma": 0,
+              "name": "vu",
+              "post_count": 0,
+              "slug": "vu"
+            },
+            "you_initiated": true
+          }
+        ],
+        "new_posts": [],
+        "notifications": {
+          "items": [],
+          "unread_comments": 0,
+          "unread_follows": 0,
+          "unread_messages": 0,
+          "unread_posts": 0,
+          "unread_total": 0
+        },
+        "server_time": "",
+        "success": true,
+        "unread_total": 0
+      }
+    },
+    {
+      "name": "stats",
+      "method": "GET",
+      "path": "/api/v1/stats",
+      "token": "fei",
+      "status": 200,
+      "headers": {
+        "Cache-Control": "no-store",
+        "Content-Type": "application/json; charset=utf-8",
+        "X-Content-Type-Options": "nosniff"
+      },
+      "body_norm": {
+        "messages": 2,
+        "newest": "2026-01-02T10:05:00Z",
+        "oldest": "2026-01-02T10:00:00Z",
+        "retention_hours": 24,
+        "success": true
+      }
+    },
+    {
+      "name": "auth-missing",
+      "method": "GET",
+      "path": "/api/v1/home",
+      "status": 401,
+      "headers": {
+        "Cache-Control": "no-store",
+        "Content-Type": "application/json; charset=utf-8",
+        "WWW-Authenticate": "Bearer realm=\"a2a\"",
+        "X-Content-Type-Options": "nosniff"
+      },
+      "body_norm": {
+        "error": "unauthorized",
+        "success": false
+      }
+    },
+    {
+      "name": "send-unsigned",
+      "method": "POST",
+      "path": "/a2a/vu",
+      "token": "fei",
+      "content_type": "application/json",
+      "body": "{\"content\":\"unsigned\"}",
+      "status": 403,
+      "headers": {
+        "Cache-Control": "no-store",
+        "Content-Type": "application/json; charset=utf-8",
+        "X-Content-Type-Options": "nosniff"
+      },
+      "body_norm": {
+        "error": "signature required (platform strict-sign): set timestamp/nonce/sig",
+        "success": false
+      }
+    },
+    {
+      "name": "send-unknown",
+      "method": "POST",
+      "path": "/a2a/nobody",
+      "token": "fei",
+      "content_type": "application/json",
+      "body": "{\"content\":\"x\"}",
+      "status": 403,
+      "headers": {
+        "Cache-Control": "no-store",
+        "Content-Type": "application/json; charset=utf-8",
+        "X-Content-Type-Options": "nosniff"
+      },
+      "body_norm": {
+        "error": "recipient not in allowlist",
+        "success": false
+      }
+    },
+    {
+      "name": "send-wrong-content-type",
+      "method": "POST",
+      "path": "/a2a/vu",
+      "token": "fei",
+      "content_type": "text/plain",
+      "body": "{\"content\":\"x\"}",
+      "status": 415,
+      "headers": {
+        "Cache-Control": "no-store",
+        "Content-Type": "application/json; charset=utf-8",
+        "X-Content-Type-Options": "nosniff"
+      },
+      "body_norm": {
+        "error": "Content-Type: application/json is required",
+        "success": false
+      }
+    },
+    {
+      "name": "send-empty",
+      "method": "POST",
+      "path": "/a2a/vu",
+      "token": "fei",
+      "content_type": "application/json",
+      "body": "{}",
+      "status": 422,
+      "headers": {
+        "Cache-Control": "no-store",
+        "Content-Type": "application/json; charset=utf-8",
+        "X-Content-Type-Options": "nosniff"
+      },
+      "body_norm": {
+        "error": "message is empty",
+        "success": false
+      }
+    },
+    {
+      "name": "send-too-long",
+      "method": "POST",
+      "path": "/a2a/vu",
+      "token": "fei",
+      "content_type": "application/json",
+      "body": "{\"content\":\"xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx\"}",
+      "status": 422,
+      "headers": {
+        "Cache-Control": "no-store",
+        "Content-Type": "application/json; charset=utf-8",
+        "X-Content-Type-Options": "nosniff"
+      },
+      "body_norm": {
+        "error": "message too long: max 8000 characters",
+        "success": false
+      }
+    },
+    {
+      "name": "not-found",
+      "method": "GET",
+      "path": "/nope",
+      "status": 404,
+      "headers": {
+        "Cache-Control": "no-store",
+        "Content-Type": "application/json; charset=utf-8",
+        "X-Content-Type-Options": "nosniff"
+      },
+      "body_norm": {
+        "error": "not found",
+        "success": false
+      }
+    }
+  ]
+}
