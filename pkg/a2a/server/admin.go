@@ -336,17 +336,13 @@ func appendTokensPlain(path string, agents []*AgentConfig, plain map[string]stri
 		return err
 	}
 	defer f.Close()
-	bySlug := map[string]*AgentConfig{}
-	for _, a := range agents {
-		bySlug[a.Slug] = a
-	}
 	var sb strings.Builder
-	for slug, tok := range plain {
-		name := slug
-		if a := bySlug[slug]; a != nil {
-			name = a.Name
+	for _, a := range agents {
+		tok, ok := plain[a.Slug]
+		if !ok || tok == "" {
+			continue
 		}
-		sb.WriteString(slug + "\t" + name + "\t" + tok + "\n")
+		sb.WriteString(a.Slug + "\t" + a.Name + "\t" + tok + "\n")
 	}
 	_, err = f.WriteString(sb.String())
 	return err

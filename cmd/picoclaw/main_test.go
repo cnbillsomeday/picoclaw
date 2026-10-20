@@ -63,3 +63,18 @@ func TestNewPicoclawCommand(t *testing.T) {
 		assert.False(t, subcmd.Hidden)
 	}
 }
+
+func TestSuppressBanner(t *testing.T) {
+	if !suppressBanner([]string{"picoclaw", "a2a-server", "init", "--json"}) {
+		t.Fatal("a2a-server must suppress the banner")
+	}
+	if !suppressBanner([]string{"picoclaw", "--no-color", "a2a-server", "check"}) {
+		t.Fatal("flags before a2a-server must not defeat suppression")
+	}
+	if suppressBanner([]string{"picoclaw", "version"}) {
+		t.Fatal("other commands keep the banner")
+	}
+	if suppressBanner([]string{"picoclaw"}) {
+		t.Fatal("bare picoclaw keeps the banner")
+	}
+}

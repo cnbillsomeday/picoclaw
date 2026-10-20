@@ -146,6 +146,10 @@ func NewA2AChannel(bc *config.Channel, settings *config.A2ASettings, b *bus.Mess
 			"error": err.Error(),
 		})
 	}
+	if state == nil {
+		// Unreadable state (e.g. permissions): start fresh instead of panicking.
+		state = &channelState{path: statePath, data: stateData{Version: stateVersion, Agent: agentSlug}}
+	}
 
 	ch := &Channel{
 		BaseChannel:  channels.NewBaseChannel("a2a", settings, b, allow),

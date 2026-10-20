@@ -98,6 +98,19 @@ func earlyColorDisabled() bool {
 	return false
 }
 
+// suppressBanner keeps machine-readable a2a-server output (init/check --json)
+// free of the decorative banner. The first non-flag argument is the command.
+func suppressBanner(args []string) bool {
+	for i := 1; i < len(args); i++ {
+		arg := args[i]
+		if strings.HasPrefix(arg, "-") {
+			continue
+		}
+		return arg == "a2a-server"
+	}
+	return false
+}
+
 func NewPicoclawCommand() *cobra.Command {
 	short := fmt.Sprintf("%s PicoClaw — personal AI assistant", internal.Logo)
 	long := fmt.Sprintf(`%s PicoClaw is a lightweight personal AI assistant.
@@ -175,10 +188,12 @@ func main() {
 
 	cliui.Init(earlyColorDisabled())
 
-	if earlyColorDisabled() {
-		fmt.Print(plainBanner)
-	} else {
-		fmt.Printf("%s", banner)
+	if !suppressBanner(os.Args) {
+		if earlyColorDisabled() {
+			fmt.Print(plainBanner)
+		} else {
+			fmt.Printf("%s", banner)
+		}
 	}
 
 	tzEnv := os.Getenv("TZ")
