@@ -267,6 +267,31 @@ func (c *BaseChannel) HandleMessageWithContext(
 	inboundCtx bus.InboundContext,
 	senderOpts ...bus.SenderInfo,
 ) error {
+	return c.handleMessage(ctx, deliveryChatID, content, media, inboundCtx, nil, senderOpts...)
+}
+
+// HandleMessageWithCompletion publishes an inbound message and attaches a
+// completion callback that the agent invokes when the turn reaches a terminal
+// state. The callback is in-process only.
+func (c *BaseChannel) HandleMessageWithCompletion(
+	ctx context.Context,
+	deliveryChatID, content string,
+	media []string,
+	inboundCtx bus.InboundContext,
+	completion func(bus.InboundResult),
+	senderOpts ...bus.SenderInfo,
+) error {
+	return c.handleMessage(ctx, deliveryChatID, content, media, inboundCtx, completion, senderOpts...)
+}
+
+func (c *BaseChannel) handleMessage(
+	ctx context.Context,
+	deliveryChatID, content string,
+	media []string,
+	inboundCtx bus.InboundContext,
+	completion func(bus.InboundResult),
+	senderOpts ...bus.SenderInfo,
+) error {
 	// Use SenderInfo-based allow check when available, else fall back to string
 	var sender bus.SenderInfo
 	if len(senderOpts) > 0 {
@@ -309,6 +334,7 @@ func (c *BaseChannel) HandleMessageWithContext(
 		Content:    content,
 		Media:      media,
 		MediaScope: scope,
+		Completion: completion,
 	}
 	msg = bus.NormalizeInboundMessage(msg)
 

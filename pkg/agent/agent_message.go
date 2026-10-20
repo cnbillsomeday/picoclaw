@@ -192,6 +192,7 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 		EnableSummary:           true,
 		SendResponse:            false,
 		AllowInterimPicoPublish: true,
+		Completion:              msg.Completion,
 	}
 	var err error
 	opts, err = resolveTurnProfileOptions(al.GetConfig(), opts)
@@ -202,6 +203,9 @@ func (al *AgentLoop) processMessage(ctx context.Context, msg bus.InboundMessage)
 	// context-dependent commands check their own Runtime fields and report
 	// "unavailable" when the required capability is nil.
 	if response, handled := al.handleCommand(ctx, msg, agent, &opts); handled {
+		if msg.Completion != nil {
+			msg.Completion(bus.InboundResult{Status: bus.InboundResultCompleted})
+		}
 		return response, nil
 	}
 

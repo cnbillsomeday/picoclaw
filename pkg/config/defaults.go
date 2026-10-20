@@ -615,6 +615,10 @@ func defaultChannels() ChannelsConfig {
 				"suppress_patterns":      []string{},
 				"reply_window_sec":       600,
 				"max_replies_per_window": 3,
+				"require_sign":           true,
+				"inbound_retry_sec":      60,
+				"inbound_max_attempts":   3,
+				"inbound_timeout_sec":    300,
 			},
 		},
 	}

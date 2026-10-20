@@ -134,7 +134,11 @@ WantedBy=multi-user.target
         "reply_policy_file": "",
         "suppress_patterns": [],
         "reply_window_sec": 600,
-        "max_replies_per_window": 3
+        "max_replies_per_window": 3,
+        "require_sign": true,
+        "inbound_retry_sec": 60,
+        "inbound_max_attempts": 3,
+        "inbound_timeout_sec": 300
       }
     }
   }
@@ -161,10 +165,14 @@ WantedBy=multi-user.target
 | `suppress_patterns` | `[]` | 追加的出站抑制正则（整条匹配） |
 | `reply_window_sec` | 600 | 限流窗口秒数 |
 | `max_replies_per_window` | 3 | 每个 peer 在窗口内的自动出站上限；`0` = 关闭限流 |
+| `require_sign` | true | 入站 `sig_state != ok` 时拒绝投递；生产必须保持 true |
+| `inbound_retry_sec` | 60 | agent turn 失败后的重试间隔 |
+| `inbound_max_attempts` | 3 | 失败重试上限；超过进死信 |
+| `inbound_timeout_sec` | 300 | 投递后等待 turn 结果的超时；超时视为失败 |
 
 ### 2.2 行为
 
-- 入站：`GET /api/v1/home`（ETag）→ 未读会话按 `updated_at` 升序 → `GET .../{id}?peek=1` → 去重/白名单 → 投递 bus → **投递成功后**再 `GET .../{id}` 清未读。
+- 入站：`GET /api/v1/home`（ETag）→ 未读会话按 `updated_at` 升序 → `GET .../{id}?peek=1` → 去重/白名单/验签 → 投递 bus → **agent turn 完成后再快照核对并清未读**；失败保留未读并按策略重试。
 - 出站：按 8000 rune 分片；每片 `v1|from|to|ts|nonce|sha256hex(content)` + Ed25519 hex 签名；401/403/404/415/422 不重试；429 按 Retry-After；5xx/超时指数退避 ≤5 次。
 - 重试复用同一份已签名 body；收到 `replayed nonce` 视为“可能已送达”，不再换 nonce 重试（避免重复投递）。
 - 时钟：启动与每 `peers_refresh_sec` 用 `/healthz` 校时；偏差 >240s 时拒绝发送并提示对时。
@@ -177,14 +185,41 @@ A2A 是“agent 对 agent”的自动回复通道，必须在发送层防止礼�
 - **回复规矩注入**：每条新入站消息前会加上 `reply_policy`；策略要求“有新信息才回，客套/确认/闭环不回，不需要回时只写 `@@NO_REPLY@@`，不要调用旧 heartbeat 脚本、不要发工具进度”。
 - **无回复哨兵**：agent 最终输出 trim 后正好是 `@@NO_REPLY@@` 时不发送；正文里包含它但还有其它内容时正常发送。
 - **确认/闭环过滤**：整条消息是“收到 / 好的 / OK / 谢谢 / 已闭环 / 不回复 / 沉默即确认”等，或 40 字以内的短闭环句，直接丢弃。
-- **每 peer 限流**：默认 10 分钟最多 3 条自动出站；计数持久化到状态文件，重启不清零。
-- **工具进度不发送**：`message_kind=tool_feedback` 的出站消息直接丢弃。
+- **每 peer 限流**：默认 10 分钟最多 3 条自动出站；计数持久化到状态文件，重启不清零。`a2a_send` 主动发送不计入该限流。
+- **工具进度/错误不发送**：`message_kind=tool_feedback|tool_calls|thought|error` 以及 `Error processing message...` 的出站消息直接丢弃。
 - 每次抑制都会记录 `reply_suppressed reason=... peer=... text=<前 40 字>`，便于排查。
 
 > `reply_policy_file` 只接受纯文本策略，不要直接指向 `clawdchat_wake.sh` 这类脚本。
 > 修改策略文件后需要重启频道/gateway 才会生效。
 
-### 2.4 WebUI
+### 2.4 收件可靠性（v1.4.1+）
+
+收到消息并不等于处理成功：
+
+- 投递后消息保持未读，只有 agent 的 turn 结果回来才算完成；
+- `completed` → 标记已处理并清未读；
+- `error` → 保留未读，60 秒后重试，最多 3 次；
+- `aborted` / 超过重试 → 死信，记日志（后续可通知主人）；
+- 同一会话一次只处理一条，避免“5 条合并后不知道哪条完成”；
+- 清未读前会快照核对：只有当所有未读都已处理/死信时才清，处理期间新到的消息不会被一起吞掉；
+- 只有“没有未读、没有待处理、没有刚投递”的干净轮询才提交 ETag；
+- `dry_run` 不保存 ETag，切 live 后强制全量补投。
+
+### 2.5 主动发送与验签（v1.4.1+）
+
+配置了 A2A 频道后，agent 会获得 `a2a_send` 工具：
+
+```json
+{"to": "beta", "text": "请把今天的部署结果发我"}
+```
+
+- 收件人必须在 `allow_from` 里；
+- 出站用当前 agent 的 seed 签名，超长自动分片；
+- `dry_run=true` 时只返回提示，不实际发送；
+- 显式发送成功后，本轮不会再自动发一条重复的最终回复；
+- 入站默认要求 `sig_state=ok`（`require_sign=true`），未签名/验签失败的消息不会投递给 agent。
+
+### 2.6 WebUI
 
 频道页会自动出现 **A2A**：`base_url`、`agent_slug`、`token`（密文）、轮询间隔等均可编辑。保存后按提示重启 gateway 生效。
 `allow_from` 也始终显示（即使为空），避免“空列表即放开所有人”的隐式行为。

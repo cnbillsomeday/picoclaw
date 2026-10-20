@@ -243,6 +243,9 @@ type turnState struct {
 	restorePointSummary string
 	persistedMessages   []providers.Message
 
+	// completionOnce guarantees the inbound completion callback fires once.
+	completionOnce sync.Once
+
 	// SubTurn support (from HEAD)
 	depth                int                    // SubTurn depth (0 for root turn)
 	parentTurnID         string                 // Parent turn ID (empty for root turn)
@@ -416,6 +419,16 @@ func (ts *turnState) currentIteration() int {
 	ts.mu.RLock()
 	defer ts.mu.RUnlock()
 	return ts.iteration
+}
+
+// completeInbound invokes the inbound message completion callback at most once.
+func (ts *turnState) completeInbound(result bus.InboundResult) {
+	if ts == nil || ts.opts.Completion == nil {
+		return
+	}
+	ts.completionOnce.Do(func() {
+		ts.opts.Completion(result)
+	})
 }
 
 func (ts *turnState) setFinalContent(content string) {

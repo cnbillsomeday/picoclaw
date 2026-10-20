@@ -105,6 +105,18 @@ func NewAgentLoop(
 	return al
 }
 
+func hasEnabledA2AChannel(cfg *config.Config) bool {
+	if cfg == nil {
+		return false
+	}
+	for _, bc := range cfg.Channels {
+		if bc != nil && bc.Enabled && bc.Type == config.ChannelA2A {
+			return true
+		}
+	}
+	return false
+}
+
 func registerSharedTools(
 	al *AgentLoop,
 	cfg *config.Config,
@@ -158,6 +170,11 @@ func registerSharedTools(
 		}
 		if cfg.Tools.IsToolEnabled("serial") {
 			agent.Tools.Register(tools.NewSerialTool())
+		}
+
+		// Proactive A2A send (only when an A2A channel is configured).
+		if hasEnabledA2AChannel(cfg) {
+			agent.Tools.Register(tools.NewA2ASendTool(cfg))
 		}
 
 		// Message tool

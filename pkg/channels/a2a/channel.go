@@ -49,6 +49,7 @@ const (
 		"不需要回复时，最终输出只写 " + noReplySentinel + "，不要写任何其他内容（不要写“收到”“不回复”“已闭环”）。\n" +
 		"不要调用旧的 clawdchat/heartbeat 脚本；收发由频道负责。\n" +
 		"不要向对方发送工具执行进度、命令输出、内部核对过程。\n" +
+		"回答技术问题只用已知事实，不要 grep 本机脚本/日志/配置；不确定就说不知道。\n" +
 		"写完即止：不要发确认句、不要复述、不要再次核对。"
 )
 
@@ -80,6 +81,12 @@ type Channel struct {
 	replyWindow   time.Duration
 	maxReplies    int
 	now           func() time.Time
+
+	requireSign        bool
+	inboundRetry       time.Duration
+	inboundMaxAttempts int
+	inboundTimeout     time.Duration
+	httpTimeout        time.Duration
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -207,26 +214,40 @@ func NewA2AChannel(bc *config.Channel, settings *config.A2ASettings, b *bus.Mess
 	maxReplies := settings.GetMaxRepliesPerWindow()
 
 	ch := &Channel{
-		BaseChannel:   channels.NewBaseChannel("a2a", settings, b, allow),
-		settings:      settings,
-		client:        client.New(baseURL, token, timeout),
-		signer:        signer,
-		state:         state,
-		agentSlug:     agentSlug,
-		pollInterval:  poll,
-		peersRefresh:  refresh,
-		cooldown:      time.Duration(settings.CooldownSec) * time.Second,
-		maxChars:      maxChars,
-		dryRun:        settings.DryRun,
-		signEnabled:   signEnabled,
-		replyPolicy:   replyPolicy,
-		ackFilter:     ackFilter,
-		customFilters: customFilters,
-		replyWindow:   replyWindow,
-		maxReplies:    maxReplies,
-		now:           time.Now,
-		peers:         map[string]wire.Agent{},
-		drySeen:       map[string]struct{}{},
+		BaseChannel:        channels.NewBaseChannel("a2a", settings, b, allow),
+		settings:           settings,
+		client:             client.New(baseURL, token, timeout),
+		signer:             signer,
+		state:              state,
+		agentSlug:          agentSlug,
+		pollInterval:       poll,
+		peersRefresh:       refresh,
+		cooldown:           time.Duration(settings.CooldownSec) * time.Second,
+		maxChars:           maxChars,
+		dryRun:             settings.DryRun,
+		signEnabled:        signEnabled,
+		replyPolicy:        replyPolicy,
+		ackFilter:          ackFilter,
+		customFilters:      customFilters,
+		replyWindow:        replyWindow,
+		maxReplies:         maxReplies,
+		now:                time.Now,
+		requireSign:        settings.RequireSignEnabled(),
+		inboundRetry:       settings.GetInboundRetry(),
+		inboundMaxAttempts: settings.GetInboundMaxAttempts(),
+		inboundTimeout:     settings.GetInboundTimeout(),
+		httpTimeout:        timeout,
+		peers:              map[string]wire.Agent{},
+		drySeen:            map[string]struct{}{},
+	}
+	// Never trust a persisted 304 across restarts (nor a dry-run ETag when
+	// switching to live). Deduplication uses last_seen, not the ETag.
+	state.SetETag("")
+	if err := state.Save(); err != nil {
+		logger.WarnCF("a2a", "failed to persist startup state", map[string]any{
+			"agent": agentSlug,
+			"error": err.Error(),
+		})
 	}
 	ch.SetOwner(ch)
 	return ch, nil
@@ -285,9 +306,9 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) ([]string, 
 	}
 	content := msg.Content
 	trimmed := strings.TrimSpace(content)
-	if isToolFeedbackMessage(msg) {
+	if reason := suppressedOutboundReason(msg); reason != "" {
 		logger.DebugCF("a2a", "reply_suppressed", map[string]any{
-			"reason": "tool_feedback",
+			"reason": reason,
 			"agent":  c.agentSlug,
 			"peer":   peer,
 		})
@@ -297,6 +318,7 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) ([]string, 
 		return nil, nil
 	}
 	if trimmed == noReplySentinel {
+		wire.ConsumeExplicitSend(msg.SessionKey, peer)
 		logger.DebugCF("a2a", "reply_suppressed", map[string]any{
 			"reason": "no_reply_sentinel",
 			"agent":  c.agentSlug,
@@ -305,8 +327,18 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) ([]string, 
 		return nil, nil
 	}
 	if c.isAckOrClosure(trimmed) {
+		wire.ConsumeExplicitSend(msg.SessionKey, peer)
 		logger.InfoCF("a2a", "reply_suppressed", map[string]any{
 			"reason": "ack_filter",
+			"agent":  c.agentSlug,
+			"peer":   peer,
+			"text":   previewText(trimmed, 40),
+		})
+		return nil, nil
+	}
+	if wire.ConsumeExplicitSend(msg.SessionKey, peer) {
+		logger.InfoCF("a2a", "reply_suppressed", map[string]any{
+			"reason": "explicit_send",
 			"agent":  c.agentSlug,
 			"peer":   peer,
 			"text":   previewText(trimmed, 40),
@@ -413,12 +445,25 @@ func (c *Channel) isAckOrClosure(text string) bool {
 	return false
 }
 
-func isToolFeedbackMessage(msg bus.OutboundMessage) bool {
+func suppressedOutboundReason(msg bus.OutboundMessage) string {
 	kind := ""
 	if msg.Context.Raw != nil {
 		kind = strings.TrimSpace(msg.Context.Raw["message_kind"])
 	}
-	return strings.EqualFold(kind, "tool_feedback")
+	switch {
+	case strings.EqualFold(kind, "tool_feedback"):
+		return "tool_feedback"
+	case strings.EqualFold(kind, "thought"):
+		return "thought"
+	case strings.EqualFold(kind, "tool_calls"):
+		return "tool_calls"
+	case strings.EqualFold(kind, "error"):
+		return "error"
+	}
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(msg.Content)), "error processing message") {
+		return "error"
+	}
+	return ""
 }
 
 func previewText(text string, max int) string {

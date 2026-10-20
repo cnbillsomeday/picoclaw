@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/sipeed/picoclaw/pkg/a2a/client"
+	"github.com/sipeed/picoclaw/pkg/a2a/wire"
 	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/config"
 )
@@ -252,5 +253,63 @@ func TestRateLimitStatePersists(t *testing.T) {
 	}
 	if loaded.AllowOutbound("beta", now.Add(time.Minute), 10*time.Minute, 1) {
 		t.Fatal("persisted outbound count was not loaded")
+	}
+}
+
+func TestSendSuppressesAutoReplyAfterExplicitSend(t *testing.T) {
+	platform := startTestPlatform(t, "alpha", "beta")
+	ch, _ := newTestChannel(t, platform, "alpha", false)
+	ch.SetRunning(true)
+	defer ch.SetRunning(false)
+
+	wire.MarkExplicitSend("session-1", "beta")
+	ids, err := ch.Send(context.Background(), bus.OutboundMessage{
+		ChatID:     "beta",
+		SessionKey: "session-1",
+		Content:    "final automatic reply",
+	})
+	if err != nil {
+		t.Fatalf("Send: %v", err)
+	}
+	if len(ids) != 0 {
+		t.Fatalf("ids = %v, want suppressed after explicit send", ids)
+	}
+	if got := peerUnread(t, platform, "beta"); got != 0 {
+		t.Fatalf("beta unread = %d, want 0", got)
+	}
+
+	ids, err = ch.Send(context.Background(), bus.OutboundMessage{
+		ChatID:     "beta",
+		SessionKey: "session-1",
+		Content:    "next genuine reply",
+	})
+	if err != nil {
+		t.Fatalf("second Send: %v", err)
+	}
+	if len(ids) != 1 {
+		t.Fatalf("second Send ids = %v, want 1", ids)
+	}
+}
+
+func TestSendSuppressesErrorAndThoughtOutbound(t *testing.T) {
+	platform := startTestPlatform(t, "alpha", "beta")
+	ch, _ := newTestChannel(t, platform, "alpha", false)
+	ch.SetRunning(true)
+	defer ch.SetRunning(false)
+
+	cases := []bus.OutboundMessage{
+		{ChatID: "beta", Content: "Error processing message: upstream 400"},
+		{ChatID: "beta", Content: "internal error", Context: bus.InboundContext{Raw: map[string]string{"message_kind": "error"}}},
+		{ChatID: "beta", Content: "thinking...", Context: bus.InboundContext{Raw: map[string]string{"message_kind": "thought"}}},
+	}
+	for i, msg := range cases {
+		if ids, err := ch.Send(context.Background(), msg); err != nil {
+			t.Fatalf("case %d: %v", i, err)
+		} else if len(ids) != 0 {
+			t.Fatalf("case %d sent %v, want suppressed", i, ids)
+		}
+	}
+	if got := peerUnread(t, platform, "beta"); got != 0 {
+		t.Fatalf("beta unread = %d, want 0", got)
 	}
 }

@@ -101,3 +101,43 @@ func TestA2ALoopGuardExplicitValues(t *testing.T) {
 		t.Fatalf("negative max replies = %d, want 0", got)
 	}
 }
+
+func TestA2AInboundReliabilityDefaults(t *testing.T) {
+	cfg := DefaultConfig()
+	bc := cfg.Channels.Get(ChannelA2A)
+	if bc == nil {
+		t.Fatal("DefaultConfig() has no a2a channel")
+	}
+	decoded, err := bc.GetDecoded()
+	if err != nil {
+		t.Fatalf("GetDecoded: %v", err)
+	}
+	settings := decoded.(*A2ASettings)
+	if !settings.RequireSignEnabled() {
+		t.Fatal("require_sign must default to true")
+	}
+	if got := settings.GetInboundRetry(); got != time.Minute {
+		t.Fatalf("inbound retry = %s, want 1m", got)
+	}
+	if got := settings.GetInboundMaxAttempts(); got != 3 {
+		t.Fatalf("inbound max attempts = %d, want 3", got)
+	}
+	if got := settings.GetInboundTimeout(); got != 5*time.Minute {
+		t.Fatalf("inbound timeout = %s, want 5m", got)
+	}
+
+	off := false
+	explicit := A2ASettings{RequireSign: &off, InboundRetrySec: 10, InboundMaxAttempts: 5, InboundTimeoutSec: 30}
+	if explicit.RequireSignEnabled() {
+		t.Fatal("explicit require_sign=false was ignored")
+	}
+	if got := explicit.GetInboundRetry(); got != 10*time.Second {
+		t.Fatalf("inbound retry = %s, want 10s", got)
+	}
+	if got := explicit.GetInboundMaxAttempts(); got != 5 {
+		t.Fatalf("inbound max attempts = %d, want 5", got)
+	}
+	if got := explicit.GetInboundTimeout(); got != 30*time.Second {
+		t.Fatalf("inbound timeout = %s, want 30s", got)
+	}
+}

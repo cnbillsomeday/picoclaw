@@ -4,6 +4,8 @@ package agent
 
 import (
 	"context"
+	"errors"
+	"sync"
 
 	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/logger"
@@ -18,10 +20,63 @@ func (al *AgentLoop) processMessageSync(ctx context.Context, msg bus.InboundMess
 	al.publishResponseOrError(ctx, msg.Channel, msg.ChatID, msg.SessionKey, response, err)
 }
 
+// completionGate defers the inbound completion callback until the final
+// response has been published, while still making it exactly-once.
+type completionGate struct {
+	completion func(bus.InboundResult)
+	recordOnce sync.Once
+	fireOnce   sync.Once
+	result     bus.InboundResult
+}
+
+func newCompletionGate(completion func(bus.InboundResult)) *completionGate {
+	return &completionGate{completion: completion}
+}
+
+func (g *completionGate) Record(result bus.InboundResult) {
+	if g == nil {
+		return
+	}
+	g.recordOnce.Do(func() { g.result = result })
+}
+
+func (g *completionGate) Fire() {
+	if g == nil || g.completion == nil {
+		return
+	}
+	g.fireOnce.Do(func() {
+		g.recordOnce.Do(func() {
+			g.result = bus.InboundResult{
+				Status: bus.InboundResultError,
+				Error:  "turn ended without a completion result",
+			}
+		})
+		g.completion(g.result)
+	})
+}
+
 func (al *AgentLoop) runTurnWithSteering(ctx context.Context, initialMsg bus.InboundMessage) {
+	// Hold the completion callback until after the final response is published.
+	if initialMsg.Completion != nil {
+		gate := newCompletionGate(initialMsg.Completion)
+		initialMsg.Completion = gate.Record
+		defer gate.Fire()
+	}
+
 	// Process the initial message
 	response, err := al.processMessage(ctx, initialMsg)
 	if err != nil {
+		if initialMsg.Completion != nil {
+			status := bus.InboundResultError
+			if errors.Is(err, context.Canceled) {
+				status = bus.InboundResultAborted
+			}
+			initialMsg.Completion(bus.InboundResult{
+				Status:     status,
+				Error:      err.Error(),
+				SessionKey: initialMsg.SessionKey,
+			})
+		}
 		if !al.maybePublishError(ctx, initialMsg.Channel, initialMsg.ChatID, initialMsg.SessionKey, err) {
 			return // context canceled
 		}

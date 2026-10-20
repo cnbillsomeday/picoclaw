@@ -802,6 +802,49 @@ type A2ASettings struct {
 	// MaxRepliesPerWindow is the automatic outbound cap per peer in the window.
 	// nil/absent = 3; 0 disables the limiter.
 	MaxRepliesPerWindow *int `json:"max_replies_per_window,omitempty" yaml:"-"`
+
+	// RequireSign rejects inbound messages whose signature state is not "ok".
+	// nil/absent = true; explicit false only for non-strict test platforms.
+	RequireSign *bool `json:"require_sign,omitempty" yaml:"-"`
+	// InboundRetrySec is the delay before retrying a failed turn (default 60).
+	InboundRetrySec int `json:"inbound_retry_sec,omitempty" yaml:"-"`
+	// InboundMaxAttempts is the retry cap before dead-lettering (default 3).
+	InboundMaxAttempts int `json:"inbound_max_attempts,omitempty" yaml:"-"`
+	// InboundTimeoutSec treats a pending turn result older than this as failed
+	// (default 300).
+	InboundTimeoutSec int `json:"inbound_timeout_sec,omitempty" yaml:"-"`
+}
+
+// RequireSignEnabled reports whether inbound signatures must verify (default true).
+func (c *A2ASettings) RequireSignEnabled() bool {
+	if c == nil || c.RequireSign == nil {
+		return true
+	}
+	return *c.RequireSign
+}
+
+// GetInboundRetry returns the retry delay for failed turns.
+func (c *A2ASettings) GetInboundRetry() time.Duration {
+	if c == nil || c.InboundRetrySec <= 0 {
+		return time.Minute
+	}
+	return time.Duration(c.InboundRetrySec) * time.Second
+}
+
+// GetInboundMaxAttempts returns the retry cap before dead-lettering.
+func (c *A2ASettings) GetInboundMaxAttempts() int {
+	if c == nil || c.InboundMaxAttempts <= 0 {
+		return 3
+	}
+	return c.InboundMaxAttempts
+}
+
+// GetInboundTimeout returns the pending-result timeout.
+func (c *A2ASettings) GetInboundTimeout() time.Duration {
+	if c == nil || c.InboundTimeoutSec <= 0 {
+		return 5 * time.Minute
+	}
+	return time.Duration(c.InboundTimeoutSec) * time.Second
 }
 
 // GetReplyWindow returns the rate-limit window; 0 when the limiter is off.

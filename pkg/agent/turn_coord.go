@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/config"
 	runtimeevents "github.com/sipeed/picoclaw/pkg/events"
 	"github.com/sipeed/picoclaw/pkg/logger"
@@ -28,6 +29,19 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 	turnCtx = withTurnState(turnCtx, ts)
 	turnCtx = WithAgentLoop(turnCtx, al)
 
+	// A panic before the normal completion path must still report an error to
+	// the originating channel (e.g. A2A) so it can retry instead of clearing.
+	defer func() {
+		if r := recover(); r != nil {
+			ts.completeInbound(bus.InboundResult{
+				Status:     bus.InboundResultError,
+				Error:      fmt.Sprintf("panic: %v", r),
+				SessionKey: ts.sessionKey,
+			})
+			panic(r)
+		}
+	}()
+
 	al.registerActiveTurn(ts)
 	defer al.clearActiveTurn(ts)
 
@@ -47,6 +61,7 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 				finalSuccessfulPath = append([]string(nil), attemptedSkills...)
 			}
 		}
+		ts.completeInbound(bus.InboundResult{Status: string(turnStatus), SessionKey: ts.sessionKey})
 		al.emitEvent(
 			runtimeevents.KindAgentTurnEnd,
 			ts.eventMeta("runTurn", "turn.end"),
@@ -85,6 +100,7 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 	// SetupTurn extracts the one-time initialization phase.
 	exec, err := pipeline.SetupTurn(turnCtx, ts)
 	if err != nil {
+		turnStatus = TurnEndStatusError
 		return turnResult{}, err
 	}
 	defer exec.closeOwnedProviders()

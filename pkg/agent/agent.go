@@ -110,6 +110,8 @@ type processOptions struct {
 	InboundContext          *bus.InboundContext    // Normalized inbound facts for events/hooks
 	RouteResult             *routing.ResolvedRoute // Route decision snapshot for events/hooks
 	SessionScope            *session.SessionScope  // Session scope snapshot for events/hooks
+	// Completion is invoked once when the turn reaches a terminal state.
+	Completion func(bus.InboundResult)
 }
 
 type continuationTarget struct {
@@ -263,6 +265,12 @@ func (al *AgentLoop) Run(ctx context.Context) error {
 								"chat_id":     m.ChatID,
 								"panic":       fmt.Sprintf("%v", r),
 							})
+						if m.Completion != nil {
+							m.Completion(bus.InboundResult{
+								Status: bus.InboundResultError,
+								Error:  fmt.Sprintf("panic: %v", r),
+							})
+						}
 					}
 				}()
 				defer func() { <-al.workerSem }() // Release slot

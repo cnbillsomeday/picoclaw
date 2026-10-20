@@ -40,7 +40,12 @@ func (c *Channel) pollLoop() {
 			failStreak = 0
 			c.state.SetOK(time.Now(), 0)
 		}
-		_ = c.state.Save()
+		if err := c.state.Save(); err != nil {
+			logger.WarnCF("a2a", "failed to save channel state", map[string]any{
+				"agent": c.agentSlug,
+				"error": err.Error(),
+			})
+		}
 		if err := sleepCtx(c.ctx, delay); err != nil {
 			return
 		}
@@ -48,13 +53,19 @@ func (c *Channel) pollLoop() {
 }
 
 func (c *Channel) pollOnce(ctx context.Context) error {
-	now := time.Now()
-	home, etag, notModified, err := c.client.Home(ctx, c.state.ETag())
+	now := c.currentTime()
+	etag := c.state.ETag()
+	// While a turn result is pending (or in dry_run) a 304 would hide the
+	// unread message, so force a full view.
+	if c.dryRun || c.state.HasPendingInbound() {
+		etag = ""
+	}
+
+	home, newETag, notModified, err := c.client.Home(ctx, etag)
 	if err != nil {
 		return err
 	}
 	c.state.SetTick(now)
-	c.state.SetETag(etag)
 	c.refreshPeersIfDue(ctx)
 
 	if notModified {
@@ -70,11 +81,15 @@ func (c *Channel) pollOnce(ctx context.Context) error {
 		return conversations[i].UpdatedAt < conversations[j].UpdatedAt
 	})
 
-	delivered := 0
+	delivered := false
+	cleared := false
+	attributedUnread := 0
 	for _, conv := range conversations {
 		if conv.UnreadCount <= 0 {
 			continue
 		}
+		attributedUnread += conv.UnreadCount
+
 		detail, err := c.client.Conversation(ctx, conv.ID, true)
 		if err != nil {
 			var apiErr *client.APIError
@@ -87,84 +102,187 @@ func (c *Channel) pollOnce(ctx context.Context) error {
 			}
 			return fmt.Errorf("fetch conversation %s: %w", conv.ID, err)
 		}
-		peer := strings.TrimSpace(detail.Conversation.WithAgent.Slug)
-		if peer == "" {
-			peer = strings.TrimSpace(conv.WithAgent.Slug)
-		}
-
-		convDelivered := 0
-		for _, msg := range detail.Messages {
-			if msg.From == c.agentSlug {
-				continue
-			}
-			if msg.To != "" && msg.To != c.agentSlug {
-				continue
-			}
-			body := msg.BodyText()
-			if strings.TrimSpace(body) == "" {
-				continue
-			}
-			if c.state.Seen(conv.ID, msg.ID) {
-				continue
-			}
-			if c.dryRun {
-				c.logDryRunOnce(conv.ID, msg)
-				continue
-			}
-			if peer == "" {
-				continue
-			}
-			if !c.IsAllowed(peer) {
-				logger.WarnCF("a2a", "inbound rejected by allow_from", map[string]any{
-					"agent":   c.agentSlug,
-					"peer":    peer,
-					"message": msg.ID,
-				})
-				c.state.MarkSeen(conv.ID, msg.ID)
-				continue
-			}
-			if err := c.deliverInbound(ctx, peer, msg); err != nil {
-				return err
-			}
-			c.state.MarkSeen(conv.ID, msg.ID)
-			convDelivered++
-			delivered++
-		}
 
 		if c.dryRun {
+			for _, msg := range detail.Messages {
+				if c.isInboundForSelf(msg) {
+					c.logDryRunOnce(conv.ID, msg)
+				}
+			}
 			continue
 		}
-		// Delivery succeeded (or was consciously skipped); clear unread so we
-		// do not spin on the same conversation forever.
-		if _, err := c.client.Conversation(ctx, conv.ID, false); err != nil {
-			return fmt.Errorf("clear unread for %s: %w", conv.ID, err)
+
+		c.state.ExpirePendingInbound(conv.ID, now, c.inboundTimeout)
+
+		msg, ok := c.pickDeliverable(conv.ID, detail.Messages, now)
+		if !ok {
+			if c.clearUnreadIfSettled(ctx, conv.ID) {
+				cleared = true
+			}
+			continue
 		}
-		if convDelivered > 0 {
-			logger.InfoCF("a2a", "inbound cleared", map[string]any{
+
+		peer := c.resolvePeer(detail, msg)
+		if peer == "" {
+			logger.WarnCF("a2a", "inbound rejected: cannot resolve peer", map[string]any{
 				"agent":        c.agentSlug,
-				"peer":         peer,
 				"conversation": conv.ID,
-				"delivered":    convDelivered,
+				"message":      msg.ID,
+			})
+			c.state.MarkSeen(conv.ID, msg.ID)
+			c.state.MarkInboundDead(conv.ID, msg.ID, now, "cannot resolve peer")
+			if c.clearUnreadIfSettled(ctx, conv.ID) {
+				cleared = true
+			}
+			continue
+		}
+		if !c.IsAllowed(peer) {
+			logger.WarnCF("a2a", "inbound rejected by allow_from", map[string]any{
+				"agent":   c.agentSlug,
+				"peer":    peer,
+				"message": msg.ID,
+			})
+			c.state.MarkSeen(conv.ID, msg.ID)
+			c.state.MarkInboundDead(conv.ID, msg.ID, now, "sender not in allow_from")
+			if c.clearUnreadIfSettled(ctx, conv.ID) {
+				cleared = true
+			}
+			continue
+		}
+		if c.requireSign && !strings.EqualFold(strings.TrimSpace(msg.SigState), "ok") {
+			logger.WarnCF("a2a", "inbound rejected by signature", map[string]any{
+				"agent":     c.agentSlug,
+				"peer":      peer,
+				"message":   msg.ID,
+				"sig_state": msg.SigState,
+			})
+			c.state.MarkSeen(conv.ID, msg.ID)
+			c.state.MarkInboundDead(conv.ID, msg.ID, now, "signature state: "+msg.SigState)
+			if c.clearUnreadIfSettled(ctx, conv.ID) {
+				cleared = true
+			}
+			continue
+		}
+
+		attempt := c.state.MarkInboundPending(conv.ID, msg.ID, now, msg.BodyText())
+		if saveErr := c.state.Save(); saveErr != nil {
+			logger.WarnCF("a2a", "failed to persist inbound pending state", map[string]any{
+				"agent": c.agentSlug,
+				"error": saveErr.Error(),
 			})
 		}
+		if err := c.deliverInbound(ctx, peer, conv.ID, msg, attempt); err != nil {
+			c.state.MarkInboundFailed(conv.ID, msg.ID, now, c.inboundRetry, err.Error())
+			if saveErr := c.state.Save(); saveErr != nil {
+				logger.WarnCF("a2a", "failed to save inbound retry state", map[string]any{
+					"agent": c.agentSlug,
+					"error": saveErr.Error(),
+				})
+			}
+			return err
+		}
+		delivered = true
+		// Do not clear unread or commit the ETag until the turn completes.
 	}
 
-	if delivered > 0 && c.cooldown > 0 {
+	if home.UnreadTotal > attributedUnread {
+		logger.WarnCF("a2a", "unattributed unread messages", map[string]any{
+			"agent":      c.agentSlug,
+			"unread":     home.UnreadTotal,
+			"attributed": attributedUnread,
+		})
+	}
+
+	if !c.dryRun && !delivered && !cleared && attributedUnread == 0 &&
+		home.UnreadTotal == 0 && !c.state.HasPendingInbound() {
+		c.state.SetETag(newETag)
+	}
+
+	if delivered && c.cooldown > 0 {
 		if err := sleepCtx(ctx, c.cooldown); err != nil {
 			return err
 		}
 	}
-	if delivered > 0 {
+	if delivered {
 		logger.InfoCF("a2a", "tick.signal", map[string]any{
 			"agent":     c.agentSlug,
-			"delivered": delivered,
+			"delivered": 1,
 			"unread":    home.UnreadTotal,
 		})
 	}
 	return nil
 }
 
-func (c *Channel) deliverInbound(ctx context.Context, peer string, msg wire.Message) error {
+// pickDeliverable selects at most one message to hand to the agent. Only one
+// message per conversation may be in flight, which keeps the turn-result
+// callback unambiguous.
+func (c *Channel) pickDeliverable(convID string, messages []wire.Message, now time.Time) (wire.Message, bool) {
+	for _, msg := range messages {
+		if !c.isInboundForSelf(msg) {
+			continue
+		}
+		if strings.TrimSpace(msg.BodyText()) == "" {
+			// Nothing to process; mark it so it cannot pin the conversation
+			// unread forever.
+			c.state.MarkSeen(convID, msg.ID)
+			continue
+		}
+		if c.state.Seen(convID, msg.ID) {
+			continue
+		}
+		entry := c.state.InboundEntry(convID, msg.ID)
+		if entry != nil {
+			switch entry.Status {
+			case "dead":
+				continue
+			case "pending":
+				// An in-flight message; the timeout sweep will turn it into a
+				// retryable failure if the callback never arrives.
+				continue
+			case "failed":
+				if entry.Attempts >= c.inboundMaxAttempts {
+					c.state.MarkSeen(convID, msg.ID)
+					c.state.MarkInboundDead(convID, msg.ID, now, entry.LastError)
+					continue
+				}
+				if entry.NextAttempt > now.Unix() {
+					continue
+				}
+				if c.state.HasOtherPendingInbound(convID, msg.ID) {
+					continue
+				}
+				return msg, true
+			}
+		}
+		if c.state.PendingInboundForConv(convID) {
+			continue
+		}
+		return msg, true
+	}
+	return wire.Message{}, false
+}
+
+func (c *Channel) resolvePeer(detail *wire.ConversationDetail, msg wire.Message) string {
+	peer := normalizePeer(detail.Conversation.WithAgent.Slug)
+	if peer == "" {
+		peer = normalizePeer(msg.From)
+	}
+	if peer == "" {
+		peer = normalizePeer(msg.FromAgent)
+	}
+	return peer
+}
+
+func (c *Channel) isInboundForSelf(msg wire.Message) bool {
+	from := normalizePeer(firstNonEmpty(msg.From, msg.FromAgent))
+	to := normalizePeer(firstNonEmpty(msg.To, msg.ToAgent))
+	if from == "" || from == c.agentSlug {
+		return false
+	}
+	return to == "" || to == c.agentSlug
+}
+
+func (c *Channel) deliverInbound(ctx context.Context, peer, convID string, msg wire.Message, attempt int) error {
 	inbound := bus.InboundContext{
 		Channel:   "a2a",
 		ChatID:    peer,
@@ -179,20 +297,113 @@ func (c *Channel) deliverInbound(ctx context.Context, peer string, msg wire.Mess
 		Username:    peer,
 		DisplayName: peer,
 	}
+	completion := func(result bus.InboundResult) {
+		c.handleInboundResult(convID, peer, msg.ID, attempt, result)
+	}
 	content := c.applyReplyPolicy(msg.BodyText())
-	if err := c.HandleMessageWithContext(ctx, peer, content, nil, inbound, sender); err != nil {
+	if err := c.HandleMessageWithCompletion(ctx, peer, content, nil, inbound, completion, sender); err != nil {
 		return fmt.Errorf("deliver message %s from %s: %w", msg.ID, peer, err)
 	}
 	logger.InfoCF("a2a", "inbound.delivered", map[string]any{
 		"agent":        c.agentSlug,
 		"peer":         peer,
-		"conversation": msg.ConversationID,
+		"conversation": convID,
 		"message":      msg.ID,
+		"attempt":      attempt,
 		"signed":       msg.Signed,
 		"sig_state":    msg.SigState,
 		"policy_chars": len([]rune(strings.TrimSpace(c.replyPolicy))),
 	})
 	return nil
+}
+
+func (c *Channel) handleInboundResult(convID, peer, msgID string, attempt int, result bus.InboundResult) {
+	now := c.currentTime()
+	status, applied := c.state.ApplyInboundResult(
+		convID,
+		msgID,
+		attempt,
+		now,
+		strings.TrimSpace(result.Status),
+		result.Error,
+		c.inboundRetry,
+		c.inboundMaxAttempts,
+	)
+	if !applied {
+		// Stale callback (e.g. after retry/restart) — ignore.
+		return
+	}
+	logger.InfoCF("a2a", "inbound turn result", map[string]any{
+		"agent":        c.agentSlug,
+		"conversation": convID,
+		"message":      msgID,
+		"attempt":      attempt,
+		"status":       status,
+		"error":        result.Error,
+	})
+	if err := c.state.Save(); err != nil {
+		logger.WarnCF("a2a", "failed to save inbound result", map[string]any{
+			"agent": c.agentSlug,
+			"error": err.Error(),
+		})
+	}
+	// On completed, leave explicit-send markers for the final reply's Send
+	// call to consume (Send may be dispatched asynchronously). On failure the
+	// error outbound is filtered, so clear them here to avoid stale suppression.
+	if status != "completed" {
+		if result.SessionKey != "" {
+			wire.ClearExplicitSendsForSession(result.SessionKey)
+		} else {
+			wire.ClearExplicitSendsForPeer(peer)
+		}
+	}
+	if status == "completed" || status == "dead" {
+		timeout := c.httpTimeout
+		if timeout <= 0 {
+			timeout = 5 * time.Second
+		}
+		ctx, cancel := context.WithTimeout(context.Background(), timeout)
+		defer cancel()
+		c.clearUnreadIfSettled(ctx, convID)
+	}
+}
+
+// clearUnreadIfSettled clears the conversation only when every unread message
+// has already been completed or dead-lettered. New messages that arrived while
+// the turn was running are left unread for the next poll.
+func (c *Channel) clearUnreadIfSettled(ctx context.Context, convID string) bool {
+	detail, err := c.client.Conversation(ctx, convID, true)
+	if err != nil {
+		if !errors.Is(err, context.Canceled) {
+			logger.WarnCF("a2a", "cannot inspect unread state", map[string]any{
+				"agent":        c.agentSlug,
+				"conversation": convID,
+				"error":        err.Error(),
+			})
+		}
+		return false
+	}
+	for _, msg := range detail.Messages {
+		if !c.isInboundForSelf(msg) || msg.Read {
+			continue
+		}
+		if !c.state.Seen(convID, msg.ID) {
+			return false
+		}
+	}
+	if _, err := c.client.Conversation(ctx, convID, false); err != nil {
+		logger.WarnCF("a2a", "failed to clear unread", map[string]any{
+			"agent":        c.agentSlug,
+			"conversation": convID,
+			"error":        err.Error(),
+		})
+		return false
+	}
+	logger.InfoCF("a2a", "inbound cleared", map[string]any{
+		"agent":        c.agentSlug,
+		"conversation": convID,
+	})
+	return true
 }
 
 func (c *Channel) logDryRunOnce(convID string, msg wire.Message) {
@@ -206,7 +417,7 @@ func (c *Channel) logDryRunOnce(convID string, msg wire.Message) {
 	c.drySeenMu.Unlock()
 	logger.InfoCF("a2a", "inbound (dry_run, not delivered)", map[string]any{
 		"agent":        c.agentSlug,
-		"peer":         msg.From,
+		"peer":         normalizePeer(msg.From),
 		"conversation": convID,
 		"message":      msg.ID,
 		"chars":        len([]rune(msg.BodyText())),
@@ -290,4 +501,13 @@ func sleepCtx(ctx context.Context, d time.Duration) error {
 	case <-t.C:
 		return nil
 	}
+}
+
+func firstNonEmpty(values ...string) string {
+	for _, v := range values {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
 }

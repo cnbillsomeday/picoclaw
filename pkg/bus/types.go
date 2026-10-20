@@ -35,6 +35,19 @@ type InboundContext struct {
 	Raw          map[string]string `json:"raw,omitempty"`
 }
 
+// InboundResult is the terminal outcome of an inbound message's agent turn.
+type InboundResult struct {
+	Status     string `json:"status"` // completed | error | aborted
+	Error      string `json:"error,omitempty"`
+	SessionKey string `json:"session_key,omitempty"`
+}
+
+const (
+	InboundResultCompleted = "completed"
+	InboundResultError     = "error"
+	InboundResultAborted   = "aborted"
+)
+
 type InboundMessage struct {
 	Context    InboundContext `json:"context"`
 	Sender     SenderInfo     `json:"sender"`
@@ -48,6 +61,10 @@ type InboundMessage struct {
 	SenderID  string `json:"sender_id"`
 	ChatID    string `json:"chat_id"`
 	MessageID string `json:"message_id,omitempty"` // platform message ID
+
+	// Completion is invoked exactly once when the agent turn for this message
+	// reaches a terminal state. It is in-process only (never serialized).
+	Completion func(InboundResult) `json:"-"`
 }
 
 // OutboundScope captures the structured session scope associated with an

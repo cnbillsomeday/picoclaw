@@ -2,6 +2,8 @@
 
 package wire
 
+import "strings"
+
 // Agent is the public identity view returned by the platform.
 type Agent struct {
 	ID          string `json:"id"`
@@ -106,4 +108,37 @@ type SendResponse struct {
 type ErrorResponse struct {
 	Success bool   `json:"success"`
 	Error   string `json:"error"`
+}
+
+// NormalizeAgentSlug extracts a bare agent slug from a DID or canonical ID.
+func NormalizeAgentSlug(raw string) string {
+	slug := strings.TrimSpace(raw)
+	if slug == "" {
+		return ""
+	}
+	if idx := strings.LastIndex(slug, ":agents:"); idx >= 0 {
+		slug = slug[idx+len(":agents:"):]
+	}
+	slug = strings.TrimPrefix(slug, "a2a:")
+	return strings.TrimSpace(slug)
+}
+
+// SplitMessage splits content into chunks of at most max runes.
+func SplitMessage(content string, max int) []string {
+	if max <= 0 {
+		max = MaxMessageRunes
+	}
+	runes := []rune(content)
+	if len(runes) <= max {
+		return []string{content}
+	}
+	out := make([]string, 0, (len(runes)+max-1)/max)
+	for start := 0; start < len(runes); start += max {
+		end := start + max
+		if end > len(runes) {
+			end = len(runes)
+		}
+		out = append(out, string(runes[start:end]))
+	}
+	return out
 }

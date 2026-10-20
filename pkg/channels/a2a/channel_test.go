@@ -30,6 +30,11 @@ type testPlatform struct {
 
 func startTestPlatform(t *testing.T, agents ...string) *testPlatform {
 	t.Helper()
+	return startTestPlatformWithMode(t, "strict", agents...)
+}
+
+func startTestPlatformWithMode(t *testing.T, signMode string, agents ...string) *testPlatform {
+	t.Helper()
 	dir := t.TempDir()
 	initRes, err := server.InitData(server.InitOptions{DataDir: dir, Agents: agents})
 	if err != nil {
@@ -40,7 +45,7 @@ func startTestPlatform(t *testing.T, agents ...string) *testPlatform {
 		DataDir:            dir,
 		Domain:             "test.example",
 		Retention:          24 * time.Hour,
-		SignMode:           "strict",
+		SignMode:           signMode,
 		AllowDefaultAgents: false,
 	})
 	if err != nil {
@@ -198,6 +203,10 @@ func TestA2AChannelInboundOutbound(t *testing.T) {
 	if inbound.MessageID != sent.MessageID {
 		t.Fatalf("inbound message id = %q, want %q", inbound.MessageID, sent.MessageID)
 	}
+	if inbound.Completion == nil {
+		t.Fatal("inbound message has no completion callback")
+	}
+	inbound.Completion(bus.InboundResult{Status: bus.InboundResultCompleted})
 
 	// Reply goes back to alpha and must be signed by beta.
 	ids, err := ch.Send(context.Background(), bus.OutboundMessage{ChatID: "alpha", Content: "hello alpha"})
@@ -259,8 +268,8 @@ func TestA2AChannelInboundOutbound(t *testing.T) {
 	if err := json.Unmarshal(raw, &st); err != nil {
 		t.Fatalf("decode state: %v", err)
 	}
-	if st.ETag == "" {
-		t.Fatal("state etag is empty")
+	if st.ETag != "" {
+		t.Fatalf("state etag = %q, want empty until a clean poll", st.ETag)
 	}
 	if !ch.state.Seen(sent.ConversationID, sent.MessageID) {
 		t.Fatal("delivered message not recorded in last_seen")
