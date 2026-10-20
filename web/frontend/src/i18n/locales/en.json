@@ -463,7 +463,8 @@
       "matrix": "Matrix",
       "irc": "IRC",
       "weixin": "WeChat",
-      "mqtt": "MQTT"
+      "mqtt": "MQTT",
+      "a2a": "A2A"
     },
     "weixin": {
       "bindTitle": "WeChat Account Binding",

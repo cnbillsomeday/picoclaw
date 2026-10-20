@@ -283,3 +283,31 @@ func TestHandleGetChannelConfig_ReturnsDefaultShapeForMissingChannel(t *testing.
 		t.Fatalf("config.enabled = %#v, want false", got)
 	}
 }
+
+func TestBuildChannelConfigResponse_A2ARedactsTokenAndExposesAllowFrom(t *testing.T) {
+	cfg := config.DefaultConfig()
+	bc := &config.Channel{
+		Enabled:  true,
+		Type:     config.ChannelA2A,
+		Settings: config.RawNode(`{"token":"secret-token","base_url":"https://a2a.example","agent_slug":"fei"}`),
+	}
+	cfg.Channels[config.ChannelA2A] = bc
+
+	resp := buildChannelConfigResponse(cfg, channelCatalogItem{Name: "a2a", ConfigKey: "a2a"})
+	m, ok := resp.Config.(map[string]any)
+	if !ok {
+		t.Fatalf("config type = %T", resp.Config)
+	}
+	if _, leaked := m["token"]; leaked {
+		t.Fatal("token leaked to the channel config response")
+	}
+	if len(resp.ConfiguredSecrets) != 1 || resp.ConfiguredSecrets[0] != "token" {
+		t.Fatalf("configured secrets = %v, want [token]", resp.ConfiguredSecrets)
+	}
+	if _, exists := m["allow_from"]; !exists {
+		t.Fatal("allow_from must always be present so the UI can edit it")
+	}
+	if m["base_url"] != "https://a2a.example" || m["agent_slug"] != "fei" {
+		t.Fatalf("settings not returned: %v", m)
+	}
+}

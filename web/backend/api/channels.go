@@ -32,6 +32,7 @@ var channelCatalog = []channelCatalogItem{
 	{Name: "matrix", ConfigKey: "matrix"},
 	{Name: "irc", ConfigKey: "irc"},
 	{Name: "mqtt", ConfigKey: "mqtt"},
+	{Name: "a2a", ConfigKey: "a2a"},
 }
 
 type channelConfigResponse struct {
@@ -109,6 +110,7 @@ var channelSecretFieldMap = map[string][]string{
 	"whatsapp_native": {},
 	"maixcam":         {},
 	"mqtt":            {"username", "password"},
+	"a2a":             {"token"},
 }
 
 func buildChannelConfigResponse(cfg *config.Config, item channelCatalogItem) channelConfigResponse {
@@ -156,9 +158,13 @@ func defaultChannelConfig(configKey string) *config.Channel {
 
 func addChannelCommonConfig(settings map[string]any, bc *config.Channel) {
 	settings["enabled"] = bc.Enabled
-	if len(bc.AllowFrom) > 0 {
-		settings["allow_from"] = []string(bc.AllowFrom)
+	// Always expose allow_from (even when empty) so the channel form can edit
+	// it. A2A in particular refuses to start with an empty list.
+	allowFrom := []string(bc.AllowFrom)
+	if allowFrom == nil {
+		allowFrom = []string{}
 	}
+	settings["allow_from"] = allowFrom
 	if bc.ReasoningChannelID != "" {
 		settings["reasoning_channel_id"] = bc.ReasoningChannelID
 	}

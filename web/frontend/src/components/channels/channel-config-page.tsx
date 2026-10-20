@@ -218,6 +218,8 @@ function isConfigured(
       return hasValue("server")
     case "mqtt":
       return hasValue("broker") && hasValue("agent_id")
+    case "a2a":
+      return hasValue("base_url") && hasValue("agent_slug") && hasValue("token")
     default:
       return false
   }
@@ -255,6 +257,8 @@ function getRequiredFieldKeys(channelName: string): string[] {
       return ["server"]
     case "mqtt":
       return ["broker", "agent_id"]
+    case "a2a":
+      return ["base_url", "agent_slug", "token"]
     default:
       return []
   }
@@ -285,6 +289,7 @@ const CHANNELS_WITHOUT_DOCS = new Set([
   "whatsapp",
   "whatsapp_native",
   "mqtt",
+  "a2a",
 ])
 
 export function ChannelConfigPage({ channelName }: ChannelConfigPageProps) {
