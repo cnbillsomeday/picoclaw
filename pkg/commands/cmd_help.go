@@ -34,6 +34,13 @@ func formatHelpMessage(defs []Definition) string {
 		if usage == "" {
 			usage = "/" + def.Name
 		}
+		if len(def.Aliases) > 0 {
+			aliases := make([]string, 0, len(def.Aliases))
+			for _, alias := range def.Aliases {
+				aliases = append(aliases, "/"+alias)
+			}
+			usage += fmt.Sprintf(" (alias: %s)", strings.Join(aliases, ", /"))
+		}
 		desc := def.Description
 		if desc == "" {
 			desc = "No description"

@@ -406,3 +406,42 @@ func TestBuiltinBtwCommand_PreservesQuestionWhitespace(t *testing.T) {
 		t.Fatalf("/btw outcome=%v, want=%v", res.Outcome, OutcomeHandled)
 	}
 }
+
+func TestBuiltinClearCommand_AliasNew(t *testing.T) {
+	for _, input := range []string{"/clear", "/new"} {
+		cleared := 0
+		rt := &Runtime{
+			ClearHistory: func() error {
+				cleared++
+				return nil
+			},
+		}
+		defs := BuiltinDefinitions()
+		ex := NewExecutor(NewRegistry(defs), rt)
+
+		var reply string
+		res := ex.Execute(context.Background(), Request{
+			Text: input,
+			Reply: func(text string) error {
+				reply = text
+				return nil
+			},
+		})
+		if res.Outcome != OutcomeHandled {
+			t.Fatalf("%s: outcome=%v, want=%v", input, res.Outcome, OutcomeHandled)
+		}
+		if cleared != 1 {
+			t.Fatalf("%s: ClearHistory called %d times, want 1", input, cleared)
+		}
+		if reply != "Chat history cleared!" {
+			t.Fatalf("%s: reply=%q, want %q", input, reply, "Chat history cleared!")
+		}
+	}
+}
+
+func TestBuiltinHelp_ShowsCommandAliases(t *testing.T) {
+	reply := formatHelpMessage(BuiltinDefinitions())
+	if !strings.Contains(reply, "/clear (alias: /new)") {
+		t.Fatalf("help missing /new alias hint, got %q", reply)
+	}
+}
