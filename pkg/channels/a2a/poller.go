@@ -231,6 +231,14 @@ func (c *Channel) pickDeliverable(convID string, messages []wire.Message, now ti
 			continue
 		}
 		entry := c.state.InboundEntry(convID, msg.ID)
+		if msg.Read && entry == nil {
+			// After a state rebuild/upgrade the platform may still expose old
+			// messages in a full poll. A read message with no pending/retry
+			// state has already been handled; replaying it would create a
+			// duplicate turn. Mark it seen so it cannot keep pinning state.
+			c.state.MarkSeen(convID, msg.ID)
+			continue
+		}
 		if entry != nil {
 			switch entry.Status {
 			case "dead":

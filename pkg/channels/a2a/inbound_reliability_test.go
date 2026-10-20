@@ -204,6 +204,48 @@ func TestInboundStateDeadLetterAndStaleCallback(t *testing.T) {
 	}
 }
 
+func TestPickDeliverableSkipsReadHistoryWithoutState(t *testing.T) {
+	st := &channelState{path: filepath.Join(t.TempDir(), "state.json"), data: stateData{
+		Version: stateVersion, Agent: "beta",
+	}}
+	ch := &Channel{state: st, agentSlug: "beta"}
+	read := wire.Message{
+		ID: "m_read", From: "alpha", To: "beta", Body: "old message", Read: true,
+	}
+	msg, ok := ch.pickDeliverable("c_1", []wire.Message{read}, time.Now())
+	if ok {
+		t.Fatalf("read history message was delivered: %q", msg.ID)
+	}
+	if !st.Seen("c_1", "m_read") {
+		t.Fatal("read history message was not marked seen")
+	}
+
+	fresh := wire.Message{ID: "m_new", From: "alpha", To: "beta", Body: "new message"}
+	msg, ok = ch.pickDeliverable("c_1", []wire.Message{fresh}, time.Now())
+	if !ok || msg.ID != fresh.ID {
+		t.Fatalf("pick = %q/%v, want new message", msg.ID, ok)
+	}
+}
+
+func TestPickDeliverableRetriesReadMessageWithFailedState(t *testing.T) {
+	st := &channelState{path: filepath.Join(t.TempDir(), "state.json"), data: stateData{
+		Version: stateVersion, Agent: "beta",
+	}}
+	now := time.Now()
+	st.MarkInboundPending("c_1", "m_retry", now, "hello")
+	status, applied := st.ApplyInboundResult("c_1", "m_retry", 1, now, bus.InboundResultError, "boom", time.Minute, 3)
+	if !applied || status != "failed" {
+		t.Fatalf("status=%q applied=%v, want failed/true", status, applied)
+	}
+
+	ch := &Channel{state: st, agentSlug: "beta", inboundMaxAttempts: 3}
+	msg := wire.Message{ID: "m_retry", From: "alpha", To: "beta", Body: "hello", Read: true}
+	got, ok := ch.pickDeliverable("c_1", []wire.Message{msg}, now.Add(2*time.Minute))
+	if !ok || got.ID != msg.ID {
+		t.Fatalf("pick = %q/%v, want retryable read message", got.ID, ok)
+	}
+}
+
 func TestDryRunThenLiveCatchesUp(t *testing.T) {
 	platform := startTestPlatform(t, "alpha", "beta")
 	sendAs(t, platform, "beta", "alpha", "queued during dry run")
