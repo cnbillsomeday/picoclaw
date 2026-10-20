@@ -131,6 +131,9 @@ func (c *Channel) pollOnce(ctx context.Context) error {
 			})
 			c.state.MarkSeen(conv.ID, msg.ID)
 			c.state.MarkInboundDead(conv.ID, msg.ID, now, "cannot resolve peer")
+			c.notifyOwnerForInbound(conv.ID, "", msg.ID, previewText(msg.BodyText(), 200), "", bus.InboundResult{
+				Status: "dead", Error: "cannot resolve peer",
+			}, "dead")
 			if c.clearUnreadIfSettled(ctx, conv.ID) {
 				cleared = true
 			}
@@ -144,6 +147,9 @@ func (c *Channel) pollOnce(ctx context.Context) error {
 			})
 			c.state.MarkSeen(conv.ID, msg.ID)
 			c.state.MarkInboundDead(conv.ID, msg.ID, now, "sender not in allow_from")
+			c.notifyOwnerForInbound(conv.ID, peer, msg.ID, previewText(msg.BodyText(), 200), "", bus.InboundResult{
+				Status: "dead", Error: "sender not in allow_from",
+			}, "dead")
 			if c.clearUnreadIfSettled(ctx, conv.ID) {
 				cleared = true
 			}
@@ -158,6 +164,9 @@ func (c *Channel) pollOnce(ctx context.Context) error {
 			})
 			c.state.MarkSeen(conv.ID, msg.ID)
 			c.state.MarkInboundDead(conv.ID, msg.ID, now, "signature state: "+msg.SigState)
+			c.notifyOwnerForInbound(conv.ID, peer, msg.ID, previewText(msg.BodyText(), 200), "", bus.InboundResult{
+				Status: "dead", Error: "signature state: " + msg.SigState,
+			}, "dead")
 			if c.clearUnreadIfSettled(ctx, conv.ID) {
 				cleared = true
 			}
@@ -298,6 +307,11 @@ func (c *Channel) deliverInbound(ctx context.Context, peer, convID string, msg w
 		SenderID:  peer,
 		MessageID: msg.ID,
 	}
+	if inbound.Raw == nil {
+		inbound.Raw = map[string]string{}
+	}
+	inbound.Raw[notifyConversationKey] = convID
+	inbound.Raw[notifyInboundKey] = previewText(msg.BodyText(), 200)
 	sender := bus.SenderInfo{
 		Platform:    "a2a",
 		PlatformID:  peer,
@@ -327,6 +341,11 @@ func (c *Channel) deliverInbound(ctx context.Context, peer, convID string, msg w
 
 func (c *Channel) handleInboundResult(convID, peer, msgID string, attempt int, result bus.InboundResult) {
 	now := c.currentTime()
+	entry := c.state.InboundEntry(convID, msgID)
+	inboundPreview := ""
+	if entry != nil {
+		inboundPreview = entry.BodyPreview
+	}
 	status, applied := c.state.ApplyInboundResult(
 		convID,
 		msgID,
@@ -355,6 +374,7 @@ func (c *Channel) handleInboundResult(convID, peer, msgID string, attempt int, r
 			"error": err.Error(),
 		})
 	}
+	c.notifyOwnerForInbound(convID, peer, msgID, inboundPreview, inboundReply(result.Reply, c.isAckOrClosure), result, status)
 	// On completed, leave explicit-send markers for the final reply's Send
 	// call to consume (Send may be dispatched asynchronously). On failure the
 	// error outbound is filtered, so clear them here to avoid stale suppression.

@@ -40,6 +40,9 @@ type InboundResult struct {
 	Status     string `json:"status"` // completed | error | aborted
 	Error      string `json:"error,omitempty"`
 	SessionKey string `json:"session_key,omitempty"`
+	// Reply is the final response preview associated with the turn, used by
+	// channels that need to report terminal results to another destination.
+	Reply string `json:"reply,omitempty"`
 }
 
 const (

@@ -34,6 +34,9 @@ type stateData struct {
 	Outbound map[string][]int64 `json:"outbound,omitempty"`
 	// Inbound tracks delivery/retry state per conversation and message.
 	Inbound map[string]map[string]*inboundEntry `json:"inbound,omitempty"`
+	// Notified records owner notifications per conversation/message so retries
+	// and restarts never send the same A2A inbound notification twice.
+	Notified map[string][]string `json:"notified,omitempty"`
 }
 
 // inboundEntry is the per-message delivery state. A message is only added to
@@ -88,6 +91,9 @@ func loadChannelState(path, agent string) (*channelState, error) {
 	}
 	if data.Inbound == nil {
 		data.Inbound = map[string]map[string]*inboundEntry{}
+	}
+	if data.Notified == nil {
+		data.Notified = map[string][]string{}
 	}
 	st.data = data
 	st.data.Agent = agent
@@ -188,6 +194,42 @@ func (s *channelState) pruneLocked() {
 	sort.Strings(keys)
 	for _, k := range keys[:len(keys)-maxTrackedConvs] {
 		delete(s.data.LastSeen, k)
+	}
+}
+
+// MarkNotified records that an inbound message has been surfaced to the owner
+// at most once. It returns false if a notification was already recorded.
+func (s *channelState) MarkNotified(convID, msgID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, id := range s.data.Notified[convID] {
+		if id == msgID {
+			return false
+		}
+	}
+	if s.data.Notified == nil {
+		s.data.Notified = map[string][]string{}
+	}
+	ids := append(s.data.Notified[convID], msgID)
+	if len(ids) > maxSeenPerConv {
+		ids = ids[len(ids)-maxSeenPerConv:]
+	}
+	s.data.Notified[convID] = ids
+	s.pruneNotifiedLocked()
+	return true
+}
+
+func (s *channelState) pruneNotifiedLocked() {
+	if len(s.data.Notified) <= maxTrackedConvs {
+		return
+	}
+	keys := make([]string, 0, len(s.data.Notified))
+	for k := range s.data.Notified {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	for _, k := range keys[:len(keys)-maxTrackedConvs] {
+		delete(s.data.Notified, k)
 	}
 }
 

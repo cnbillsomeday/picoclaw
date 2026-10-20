@@ -41,6 +41,11 @@ const (
 
 	noReplySentinel = "@@NO_REPLY@@"
 
+	// Inbound context metadata carried through to the final A2A outbound so
+	// owner notifications can correlate the reply with the originating message.
+	notifyConversationKey = "a2a_conversation_id"
+	notifyInboundKey      = "a2a_inbound_preview"
+
 	// defaultAckPattern matches pure acknowledgements/closures. It is anchored
 	// so only an entire short message is suppressed.
 	defaultAckPattern = `(?i)^[（(\s]*(收到|好的|好|嗯|ok|明白|了解|已收到|已闭环|不回复|不回|沉默即确认|谢谢|多谢|再见|晚安)[）)\s。！!，,.]*$`
@@ -66,6 +71,7 @@ type Channel struct {
 	client   *client.Client
 	signer   *wire.Signer
 	state    *channelState
+	msgBus   *bus.MessageBus
 
 	agentSlug    string
 	pollInterval time.Duration
@@ -87,6 +93,11 @@ type Channel struct {
 	inboundMaxAttempts int
 	inboundTimeout     time.Duration
 	httpTimeout        time.Duration
+
+	notifyChannel string
+	notifyChatID  string
+	notifyMode    string
+	notifyMaxLen  int
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -213,12 +224,20 @@ func NewA2AChannel(bc *config.Channel, settings *config.A2ASettings, b *bus.Mess
 	replyWindow := settings.GetReplyWindow()
 	maxReplies := settings.GetMaxRepliesPerWindow()
 
+	notifyChannel := settings.GetNotifyChannel()
+	notifyChatID := settings.GetNotifyChatID()
+	notifyMode := settings.GetNotifyMode()
+	if notifyChannel != "" && strings.EqualFold(notifyChannel, "a2a") {
+		return nil, errors.New("a2a: notify_channel must not target the a2a channel")
+	}
+
 	ch := &Channel{
 		BaseChannel:        channels.NewBaseChannel("a2a", settings, b, allow),
 		settings:           settings,
 		client:             client.New(baseURL, token, timeout),
 		signer:             signer,
 		state:              state,
+		msgBus:             b,
 		agentSlug:          agentSlug,
 		pollInterval:       poll,
 		peersRefresh:       refresh,
@@ -237,6 +256,10 @@ func NewA2AChannel(bc *config.Channel, settings *config.A2ASettings, b *bus.Mess
 		inboundMaxAttempts: settings.GetInboundMaxAttempts(),
 		inboundTimeout:     settings.GetInboundTimeout(),
 		httpTimeout:        timeout,
+		notifyChannel:      notifyChannel,
+		notifyChatID:       notifyChatID,
+		notifyMode:         notifyMode,
+		notifyMaxLen:       settings.GetNotifyMaxChars(),
 		peers:              map[string]wire.Agent{},
 		drySeen:            map[string]struct{}{},
 	}
@@ -269,6 +292,7 @@ func (c *Channel) Start(ctx context.Context) error {
 		"dry_run":       c.dryRun,
 		"max_chars":     c.maxChars,
 		"state":         c.state.Path(),
+		"notify_mode":   c.notifyMode,
 	})
 	return nil
 }
@@ -413,6 +437,9 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) ([]string, 
 		if err := c.state.Save(); err != nil {
 			logger.WarnCF("a2a", "failed to save rate-limit state", map[string]any{"error": err.Error()})
 		}
+	}
+	if len(ids) > 0 {
+		c.notifyReplySent(msg)
 	}
 	return ids, nil
 }

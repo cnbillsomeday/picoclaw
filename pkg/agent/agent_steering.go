@@ -26,6 +26,7 @@ type completionGate struct {
 	completion func(bus.InboundResult)
 	recordOnce sync.Once
 	fireOnce   sync.Once
+	mu         sync.Mutex
 	result     bus.InboundResult
 }
 
@@ -37,7 +38,20 @@ func (g *completionGate) Record(result bus.InboundResult) {
 	if g == nil {
 		return
 	}
-	g.recordOnce.Do(func() { g.result = result })
+	g.recordOnce.Do(func() {
+		g.mu.Lock()
+		g.result = result
+		g.mu.Unlock()
+	})
+}
+
+func (g *completionGate) SetReply(reply string) {
+	if g == nil {
+		return
+	}
+	g.mu.Lock()
+	g.result.Reply = reply
+	g.mu.Unlock()
 }
 
 func (g *completionGate) Fire() {
@@ -46,19 +60,25 @@ func (g *completionGate) Fire() {
 	}
 	g.fireOnce.Do(func() {
 		g.recordOnce.Do(func() {
+			g.mu.Lock()
 			g.result = bus.InboundResult{
 				Status: bus.InboundResultError,
 				Error:  "turn ended without a completion result",
 			}
+			g.mu.Unlock()
 		})
-		g.completion(g.result)
+		g.mu.Lock()
+		result := g.result
+		g.mu.Unlock()
+		g.completion(result)
 	})
 }
 
 func (al *AgentLoop) runTurnWithSteering(ctx context.Context, initialMsg bus.InboundMessage) {
 	// Hold the completion callback until after the final response is published.
+	var gate *completionGate
 	if initialMsg.Completion != nil {
-		gate := newCompletionGate(initialMsg.Completion)
+		gate = newCompletionGate(initialMsg.Completion)
 		initialMsg.Completion = gate.Record
 		defer gate.Fire()
 	}
@@ -112,8 +132,15 @@ func (al *AgentLoop) runTurnWithSteering(ctx context.Context, initialMsg bus.Inb
 	}
 
 	// Publish final response
+	if gate != nil {
+		gate.SetReply(finalResponse)
+	}
 	if finalResponse != "" {
-		al.PublishResponseIfNeeded(ctx, target.Channel, target.ChatID, target.SessionKey, finalResponse)
+		if initialMsg.Channel == "a2a" {
+			al.PublishInboundResponseIfNeeded(ctx, target.Channel, target.ChatID, target.SessionKey, finalResponse, initialMsg.Context)
+		} else {
+			al.PublishResponseIfNeeded(ctx, target.Channel, target.ChatID, target.SessionKey, finalResponse)
+		}
 	}
 }
 

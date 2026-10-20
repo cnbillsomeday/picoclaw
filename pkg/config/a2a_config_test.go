@@ -141,3 +141,53 @@ func TestA2AInboundReliabilityDefaults(t *testing.T) {
 		t.Fatalf("inbound timeout = %s, want 30s", got)
 	}
 }
+
+func TestA2ANotifyDefaultsAndModes(t *testing.T) {
+	var settings A2ASettings
+	if got := settings.GetNotifyChannel(); got != "" {
+		t.Fatalf("notify channel = %q, want empty", got)
+	}
+	if got := settings.GetNotifyChatID(); got != "" {
+		t.Fatalf("notify chat id = %q, want empty", got)
+	}
+	if got := settings.GetNotifyMode(); got != "off" {
+		t.Fatalf("notify mode = %q, want off", got)
+	}
+	if got := settings.GetNotifyMaxChars(); got != 400 {
+		t.Fatalf("notify max chars = %d, want 400", got)
+	}
+
+	explicit := A2ASettings{
+		NotifyChannel:  " telegram ",
+		NotifyChatID:   " owner ",
+		NotifyMode:     " ALL ",
+		NotifyMaxChars: 5000,
+	}
+	if got := explicit.GetNotifyChannel(); got != "telegram" {
+		t.Fatalf("notify channel = %q", got)
+	}
+	if got := explicit.GetNotifyChatID(); got != "owner" {
+		t.Fatalf("notify chat id = %q", got)
+	}
+	if got := explicit.GetNotifyMode(); got != "all" {
+		t.Fatalf("notify mode = %q, want all", got)
+	}
+	if got := explicit.GetNotifyMaxChars(); got != 4000 {
+		t.Fatalf("notify max chars = %d, want 4000 cap", got)
+	}
+
+	for _, mode := range []string{"reply", "all", "failure", "off", "unknown", ""} {
+		settings := A2ASettings{NotifyMode: mode}
+		got := settings.GetNotifyMode()
+		switch mode {
+		case "reply", "all", "failure":
+			if got != mode {
+				t.Fatalf("mode %q normalized to %q", mode, got)
+			}
+		default:
+			if got != "off" {
+				t.Fatalf("mode %q normalized to %q, want off", mode, got)
+			}
+		}
+	}
+}

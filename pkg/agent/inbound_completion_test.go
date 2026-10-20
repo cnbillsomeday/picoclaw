@@ -154,3 +154,80 @@ func TestA2ASendToolRegisteredWhenChannelEnabled(t *testing.T) {
 		t.Fatal("a2a_send tool was not registered for an enabled A2A channel")
 	}
 }
+
+func TestA2AFinalOutboundPreservesInboundContext(t *testing.T) {
+	cfg := &config.Config{
+		Agents: config.AgentsConfig{
+			Defaults: config.AgentDefaults{
+				Workspace:         t.TempDir(),
+				ModelName:         "test-model",
+				MaxTokens:         4096,
+				MaxToolIterations: 3,
+			},
+		},
+	}
+	mb := bus.NewMessageBus()
+	al := NewAgentLoop(cfg, mb, &simpleMockProvider{response: "done"})
+	completion := make(chan bus.InboundResult, 1)
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan struct{})
+	go func() {
+		_ = al.Run(ctx)
+		close(done)
+	}()
+	defer func() {
+		cancel()
+		select {
+		case <-done:
+		case <-time.After(5 * time.Second):
+		}
+	}()
+
+	msg := bus.InboundMessage{
+		Context: bus.InboundContext{
+			Channel:   "a2a",
+			ChatID:    "alpha",
+			ChatType:  "direct",
+			SenderID:  "alpha",
+			MessageID: "m_1",
+			Raw: map[string]string{
+				"a2a_conversation_id": "c_1",
+				"a2a_inbound_preview": "hello",
+			},
+		},
+		Channel:   "a2a",
+		ChatID:    "alpha",
+		SenderID:  "alpha",
+		MessageID: "m_1",
+		Content:   "hello",
+		Completion: func(result bus.InboundResult) {
+			completion <- result
+		},
+	}
+	if err := mb.PublishInbound(context.Background(), msg); err != nil {
+		t.Fatalf("PublishInbound: %v", err)
+	}
+	select {
+	case out := <-mb.OutboundChan():
+		if out.Context.MessageID != "m_1" {
+			t.Fatalf("outbound message id = %q, want m_1", out.Context.MessageID)
+		}
+		if out.Context.Raw["a2a_conversation_id"] != "c_1" {
+			t.Fatalf("outbound conversation metadata = %q", out.Context.Raw["a2a_conversation_id"])
+		}
+	case <-time.After(10 * time.Second):
+		t.Fatal("timed out waiting for final outbound")
+	}
+
+	select {
+	case result := <-completion:
+		if result.Status != bus.InboundResultCompleted {
+			t.Fatalf("completion status = %q, want completed", result.Status)
+		}
+		if result.Reply != "done" {
+			t.Fatalf("completion reply = %q, want done", result.Reply)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatal("timed out waiting for completion")
+	}
+}

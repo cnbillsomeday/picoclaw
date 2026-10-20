@@ -40,6 +40,25 @@ func (al *AgentLoop) publishResponseOrError(
 }
 
 func (al *AgentLoop) PublishResponseIfNeeded(ctx context.Context, channel, chatID, sessionKey, response string) {
+	al.publishResponseIfNeeded(ctx, channel, chatID, sessionKey, response, nil)
+}
+
+// PublishInboundResponseIfNeeded publishes a final response while preserving
+// the originating inbound context. A2A uses this to correlate the delivered
+// reply with the message that triggered it.
+func (al *AgentLoop) PublishInboundResponseIfNeeded(
+	ctx context.Context,
+	channel, chatID, sessionKey, response string,
+	inboundCtx bus.InboundContext,
+) {
+	al.publishResponseIfNeeded(ctx, channel, chatID, sessionKey, response, &inboundCtx)
+}
+
+func (al *AgentLoop) publishResponseIfNeeded(
+	ctx context.Context,
+	channel, chatID, sessionKey, response string,
+	inboundCtx *bus.InboundContext,
+) {
 	if response == "" {
 		return
 	}
@@ -77,6 +96,12 @@ func (al *AgentLoop) PublishResponseIfNeeded(ctx context.Context, channel, chatI
 		Context:    bus.NewOutboundContext(channel, chatID, ""),
 		SessionKey: sessionKey,
 		Content:    response,
+	}
+	if inboundCtx != nil {
+		// Preserve the originating inbound metadata (message id and channel
+		// bookkeeping) so the channel can correlate the final reply with the
+		// message that triggered it.
+		msg.Context = outboundContextFromInbound(inboundCtx, channel, chatID, "")
 	}
 	if sessionKey != "" {
 		msg.ContextUsage = computeContextUsage(al.agentForSession(sessionKey), sessionKey)

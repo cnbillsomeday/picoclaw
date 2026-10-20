@@ -813,6 +813,16 @@ type A2ASettings struct {
 	// InboundTimeoutSec treats a pending turn result older than this as failed
 	// (default 300).
 	InboundTimeoutSec int `json:"inbound_timeout_sec,omitempty" yaml:"-"`
+
+	// NotifyChannel is the picoclaw channel used to notify the owner about A2A
+	// inbound activity (for example "telegram"). Empty disables notifications.
+	NotifyChannel string `json:"notify_channel,omitempty" yaml:"-"`
+	// NotifyChatID is the owner chat/channel ID on NotifyChannel.
+	NotifyChatID string `json:"notify_chat_id,omitempty" yaml:"-"`
+	// NotifyMode is off (default), reply, all, or failure.
+	NotifyMode string `json:"notify_mode,omitempty" yaml:"-"`
+	// NotifyMaxChars truncates the notification body (default 400).
+	NotifyMaxChars int `json:"notify_max_chars,omitempty" yaml:"-"`
 }
 
 // RequireSignEnabled reports whether inbound signatures must verify (default true).
@@ -845,6 +855,50 @@ func (c *A2ASettings) GetInboundTimeout() time.Duration {
 		return 5 * time.Minute
 	}
 	return time.Duration(c.InboundTimeoutSec) * time.Second
+}
+
+// GetNotifyChannel returns the channel used for owner notifications.
+func (c *A2ASettings) GetNotifyChannel() string {
+	if c == nil {
+		return ""
+	}
+	return strings.TrimSpace(c.NotifyChannel)
+}
+
+// GetNotifyChatID returns the owner chat/channel ID for notifications.
+func (c *A2ASettings) GetNotifyChatID() string {
+	if c == nil {
+		return ""
+	}
+	return strings.TrimSpace(c.NotifyChatID)
+}
+
+// GetNotifyMode returns the normalized notification mode; empty/off is off.
+func (c *A2ASettings) GetNotifyMode() string {
+	if c == nil {
+		return "off"
+	}
+	switch strings.ToLower(strings.TrimSpace(c.NotifyMode)) {
+	case "reply":
+		return "reply"
+	case "all":
+		return "all"
+	case "failure":
+		return "failure"
+	default:
+		return "off"
+	}
+}
+
+// GetNotifyMaxChars returns the notification preview length (default 400).
+func (c *A2ASettings) GetNotifyMaxChars() int {
+	if c == nil || c.NotifyMaxChars <= 0 {
+		return 400
+	}
+	if c.NotifyMaxChars > 4000 {
+		return 4000
+	}
+	return c.NotifyMaxChars
 }
 
 // GetReplyWindow returns the rate-limit window; 0 when the limiter is off.

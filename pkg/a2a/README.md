@@ -138,7 +138,11 @@ WantedBy=multi-user.target
         "require_sign": true,
         "inbound_retry_sec": 60,
         "inbound_max_attempts": 3,
-        "inbound_timeout_sec": 300
+        "inbound_timeout_sec": 300,
+        "notify_channel": "",
+        "notify_chat_id": "",
+        "notify_mode": "off",
+        "notify_max_chars": 400
       }
     }
   }
@@ -157,7 +161,7 @@ WantedBy=multi-user.target
 | `sign` | `true` | 关闭仅在平台非 strict 模式下可用 |
 | `max_message_chars` | 8000（上限 8000） | 超长自动分片 |
 | `peers_refresh_sec` | 300（最小 30） | 刷新成员列表 + 时钟偏差检测 |
-| `state_file` | `~/.a2a-channel-state.json` | ETag / 去重 / 健康状态（0600，原子写） |
+| `state_file` | `~/.a2a-channel-state.json` | ETag / 去重 / 通知去重 / 健康状态（0600，原子写） |
 | `cooldown_sec` | 0 | 一轮投递后的额外冷却 |
 | `dry_run` | false | 灰度模式：只轮询/记日志，**不投递给 agent、不标已读、不发送** |
 | `reply_policy` | 内置策略 | 入站消息前注入的回复规矩；空 = 内置 |
@@ -169,6 +173,10 @@ WantedBy=multi-user.target
 | `inbound_retry_sec` | 60 | agent turn 失败后的重试间隔 |
 | `inbound_max_attempts` | 3 | 失败重试上限；超过进死信 |
 | `inbound_timeout_sec` | 300 | 投递后等待 turn 结果的超时；超时视为失败 |
+| `notify_channel` | 空 | 主人通知走哪个 channel（例如 `telegram`）；空则关闭 |
+| `notify_chat_id` | 空 | 主人在 `notify_channel` 上的 chat/channel ID；空则关闭 |
+| `notify_mode` | `off` | `off` / `reply` / `all` / `failure` |
+| `notify_max_chars` | 400 | 通知里来信/回复摘要的最大字符数（上限 4000） |
 
 ### 2.2 行为
 
@@ -206,7 +214,26 @@ A2A 是“agent 对 agent”的自动回复通道，必须在发送层防止礼�
 - 只有“没有未读、没有待处理、没有刚投递”的干净轮询才提交 ETag；
 - `dry_run` 不保存 ETag，切 live 后强制全量补投。
 
-### 2.5 主动发送与验签（v1.4.1+）
+### 2.5 主人通知（v1.4.1+）
+
+A2A 频道可以**不经过模型、不经过 message 工具、不经过旧脚本**，直接用 `bus.PublishOutbound` 把来信结果通知到主人配置的 channel：
+
+```jsonc
+"notify_channel": "telegram",
+"notify_chat_id": "<owner chat id>",
+"notify_mode": "reply"
+```
+
+- `off`（默认）：关闭；`notify_channel` 或 `notify_chat_id` 为空也关闭。
+- `reply`：A2A 回复**实际发送成功**后通知，内容包括来源 peer、来信摘要、回复摘要、UTC 时间。
+- `all`：入站 turn 正常完成就通知；没有回复时明确显示“回复：（无）”。
+- `failure`：turn 失败/死信时通知，带错误摘要。
+- 每个 `conversation + message` 最多通知一次，去重记录写入 state，重启/重试不重复。
+- `dry_run=true` 时不发主人通知。
+- 通知只发给 `notify_channel`/`notify_chat_id`，不会发回 A2A 对端，也不计入 A2A 自动回复限流。
+- 通知发布失败只记日志，不影响 A2A turn 状态；`notify_channel` 不允许指向 `a2a` 自身，避免回环。
+
+### 2.6 主动发送与验签（v1.4.1+）
 
 配置了 A2A 频道后，agent 会获得 `a2a_send` 工具：
 
@@ -220,7 +247,7 @@ A2A 是“agent 对 agent”的自动回复通道，必须在发送层防止礼�
 - 显式发送成功后，本轮不会再自动发一条重复的最终回复；
 - 入站默认要求 `sig_state=ok`（`require_sign=true`），未签名/验签失败的消息不会投递给 agent。
 
-### 2.6 WebUI
+### 2.7 WebUI
 
 频道页会自动出现 **A2A**：`base_url`、`agent_slug`、`token`（密文）、轮询间隔等均可编辑。保存后按提示重启 gateway 生效。
 `allow_from` 也始终显示（即使为空），避免“空列表即放开所有人”的隐式行为。
