@@ -1,12 +1,12 @@
 {
   "agents": [
     {
-      "slug": "fei",
+      "slug": "alpha",
       "seed_base64url": "ICEiIyQlJicoKSorLC0uLzAxMjM0NTY3ODk6Ozw9Pj8",
       "created_at": "2026-01-01T00:00:00Z"
     },
     {
-      "slug": "vu",
+      "slug": "beta",
       "seed_base64url": "QEFCQ0RFRkdISUpLTE1OT1BRUlNUVVZXWFlaW1xdXl8",
       "created_at": "2026-01-01T00:00:00Z"
     }

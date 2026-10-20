@@ -26,7 +26,7 @@ func TestHandleGetChannelConfig_ReturnsSecretPresenceWithoutLeakingSecrets(t *te
 	}
 	bcfg := decoded.(*config.FeishuSettings)
 	bcfg.AppID = "cli_test_app"
-	bcfg.AppSecret = *config.NewSecureString("feishu-secret-from-security")
+	bcfg.AppSecret = *config.NewSecureString("alphashu-secret-from-security")
 	bc.AllowFrom = config.FlexibleStringSlice{"ou_test_user"}
 	if err := config.SaveConfig(configPath, cfg); err != nil {
 		t.Fatalf("SaveConfig() error = %v", err)
@@ -36,19 +36,19 @@ func TestHandleGetChannelConfig_ReturnsSecretPresenceWithoutLeakingSecrets(t *te
 	mux := http.NewServeMux()
 	h.RegisterRoutes(mux)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/channels/feishu/config", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/channels/alphashu/config", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf(
-			"GET /api/channels/feishu/config status = %d, want %d, body=%s",
+			"GET /api/channels/alphashu/config status = %d, want %d, body=%s",
 			rec.Code,
 			http.StatusOK,
 			rec.Body.String(),
 		)
 	}
-	if strings.Contains(rec.Body.String(), "feishu-secret-from-security") {
+	if strings.Contains(rec.Body.String(), "alphashu-secret-from-security") {
 		t.Fatalf("response leaked secret value: %s", rec.Body.String())
 	}
 
@@ -62,8 +62,8 @@ func TestHandleGetChannelConfig_ReturnsSecretPresenceWithoutLeakingSecrets(t *te
 		t.Fatalf("json.Unmarshal() error = %v", err)
 	}
 
-	if got := resp.ConfigKey; got != "feishu" {
-		t.Fatalf("config_key = %q, want %q", got, "feishu")
+	if got := resp.ConfigKey; got != "alphashu" {
+		t.Fatalf("config_key = %q, want %q", got, "alphashu")
 	}
 	if got := resp.Config["app_id"]; got != "cli_test_app" {
 		t.Fatalf("config.app_id = %#v, want %q", got, "cli_test_app")
@@ -119,13 +119,13 @@ func TestHandleGetChannelConfig_ReturnsCommonFieldsWhenSettingsEmpty(t *testing.
 	mux := http.NewServeMux()
 	h.RegisterRoutes(mux)
 
-	req := httptest.NewRequest(http.MethodGet, "/api/channels/feishu/config", nil)
+	req := httptest.NewRequest(http.MethodGet, "/api/channels/alphashu/config", nil)
 	rec := httptest.NewRecorder()
 	mux.ServeHTTP(rec, req)
 
 	if rec.Code != http.StatusOK {
 		t.Fatalf(
-			"GET /api/channels/feishu/config status = %d, want %d, body=%s",
+			"GET /api/channels/alphashu/config status = %d, want %d, body=%s",
 			rec.Code,
 			http.StatusOK,
 			rec.Body.String(),
@@ -289,7 +289,7 @@ func TestBuildChannelConfigResponse_A2ARedactsTokenAndExposesAllowFrom(t *testin
 	bc := &config.Channel{
 		Enabled:  true,
 		Type:     config.ChannelA2A,
-		Settings: config.RawNode(`{"token":"secret-token","base_url":"https://a2a.example","agent_slug":"fei"}`),
+		Settings: config.RawNode(`{"token":"secret-token","base_url":"https://a2a.example","agent_slug":"alpha"}`),
 	}
 	cfg.Channels[config.ChannelA2A] = bc
 
@@ -307,7 +307,7 @@ func TestBuildChannelConfigResponse_A2ARedactsTokenAndExposesAllowFrom(t *testin
 	if _, exists := m["allow_from"]; !exists {
 		t.Fatal("allow_from must always be present so the UI can edit it")
 	}
-	if m["base_url"] != "https://a2a.example" || m["agent_slug"] != "fei" {
+	if m["base_url"] != "https://a2a.example" || m["agent_slug"] != "alpha" {
 		t.Fatalf("settings not returned: %v", m)
 	}
 }

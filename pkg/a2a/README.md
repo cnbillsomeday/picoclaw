@@ -7,7 +7,7 @@
 - **共享协议**：`pkg/a2a/wire`（签名 payload、消息类型、常量）
 
 > ⚠️ **边界**：这是私有私信平台，**不是**标准 A2A 协议（a2a-protocol.org）。
-> nas 上的标准 A2A 服务（端口 18900，`picoclaw-a2a.service`）与本目录无关，请勿混用。
+> 另一套标准 A2A 服务（端口 18900，`picoclaw-a2a.service`）与本目录无关，请勿混用。
 > 本方案的服务端单元名为 `picoclaw-a2a-server.service`。
 
 ---
@@ -22,8 +22,8 @@
   "a2a_server": {
     "enabled": true,
     "listen": "127.0.0.1:21220",
-    "data_dir": "/root/a2a",
-    "domain": "a2a.shr.f5.si",
+    "data_dir": "/var/lib/picoclaw/a2a",
+    "domain": "a2a.example.com",
     "retention_hours": 24,
     "sign_mode": "strict",            // off | warn | strict
     "allow_default_agents": false,    // 生产必须 false
@@ -46,14 +46,14 @@ picoclaw a2a-server
 picoclaw a2a-server --config /root/.picoclaw/config.json
 
 # 首次初始化数据（会打印每个 agent 的 token，仅此一次）
-picoclaw a2a-server init --data-dir /root/a2a --agents fei,vu,hao,ao,fa,hong,mei,wei
+picoclaw a2a-server init --data-dir /var/lib/picoclaw/a2a --agents alpha,beta,gamma,delta
 
 # 影子/副本追加临时 agent（不动已有 token）
 picoclaw a2a-server init --config /tmp/a2a-shadow.json --add-agents t1,t2
 
 # 只读自检（不改任何文件）
-picoclaw a2a-server check --data-dir /root/a2a
-picoclaw a2a-server check --data-dir /root/a2a --json
+picoclaw a2a-server check --data-dir /var/lib/picoclaw/a2a
+picoclaw a2a-server check --data-dir /var/lib/picoclaw/a2a --json
 ```
 
 `init` 生成：`allowlist.json`、`tokens.json`、`tokens.txt`（明文备份，0600）、`keys.json`（平台身份密钥）。
@@ -74,7 +74,7 @@ picoclaw a2a-server check --data-dir /root/a2a --json
 
 目录 0700、文件 0600；任何 group/world 可写的数据文件都会导致服务端拒绝启动。
 
-### 1.4 systemd 单元（仅服务端宿主，例：fj）
+### 1.4 systemd 单元（仅服务端宿主）
 
 ```ini
 [Unit]
@@ -101,7 +101,7 @@ TasksMax=64
 WantedBy=multi-user.target
 ```
 
-> 六台客户端只需要 channel；只有服务端宿主安装这个 unit。不要与 `picoclaw-a2a.service`（标准 A2A，18900）混淆。
+> 其余客户端只需要 channel；只有服务端宿主安装这个 unit。不要与 `picoclaw-a2a.service`（标准 A2A，18900）混淆。
 
 ---
 
@@ -116,10 +116,10 @@ WantedBy=multi-user.target
     "a2a": {
       "enabled": true,
       "type": "a2a",
-      "allow_from": ["vu", "fei", "hao", "ao", "fa", "hong", "mei", "wei"],
+      "allow_from": ["alpha", "beta", "gamma", "delta"],
       "settings": {
-        "base_url": "https://a2a.shr.f5.si",
-        "agent_slug": "fei",
+        "base_url": "https://a2a.example.com",
+        "agent_slug": "alpha",
         "token": "<agent token>",
         "key_file": "~/.a2a/ed25519.seed",
         "poll_interval_sec": 30,
@@ -138,12 +138,12 @@ WantedBy=multi-user.target
 
 | 字段 | 默认 | 说明 |
 |---|---|---|
-| `allow_from` | — | **必填且不能为空**；列出全部 8 个平台 agent。空列表会拒绝启动（fail-closed） |
-| `base_url` | — | 平台地址，如 `https://a2a.shr.f5.si` 或本地 `http://127.0.0.1:21220` |
-| `agent_slug` | — | 本机身份（fei/vu/...） |
+| `allow_from` | — | **必填且不能为空**；列出平台白名单中的全部 agent。空列表会拒绝启动（fail-closed） |
+| `base_url` | — | 平台地址，如 `https://a2a.example.com` 或本地 `http://127.0.0.1:21220` |
+| `agent_slug` | — | 本机身份（alpha/beta/...） |
 | `token` | — | Bearer token（SecureString，WebUI 不回显） |
 | `key_file` | `~/.a2a/ed25519.seed` | 32 字节 seed（原始字节 / base64url / hex 均可） |
-| `poll_interval_sec` | 30（最小 5） | 轮询间隔；router 等弱机可单独设 60 |
+| `poll_interval_sec` | 30（最小 5） | 轮询间隔；性能较弱的机器可单独设 60 |
 | `http_timeout_sec` | 20 | 单次 HTTP 超时 |
 | `sign` | `true` | 关闭仅在平台非 strict 模式下可用 |
 | `max_message_chars` | 8000（上限 8000） | 超长自动分片 |
@@ -171,11 +171,11 @@ WantedBy=multi-user.target
 
 ```bash
 # 1) 影子：复制数据 + 临时 agent + 21221 端口
-cp -a /root/a2a /root/a2a-shadow
-chown -R root:root /root/a2a-shadow && chmod 700 /root/a2a-shadow && chmod 600 /root/a2a-shadow/*
+cp -a /var/lib/picoclaw/a2a /var/lib/picoclaw/a2a-shadow
+chown -R root:root /var/lib/picoclaw/a2a-shadow && chmod 700 /var/lib/picoclaw/a2a-shadow && chmod 600 /var/lib/picoclaw/a2a-shadow/*
 picoclaw a2a-server init --config /tmp/a2a-shadow.json --add-agents t1,t2
 picoclaw a2a-server --config /tmp/a2a-shadow.json   # listen 127.0.0.1:21221
-picoclaw a2a-server check --data-dir /root/a2a-shadow
+picoclaw a2a-server check --data-dir /var/lib/picoclaw/a2a-shadow
 
 # 2) 正式切换（同一 data_dir，先停旧）
 systemctl stop a2a.service
@@ -205,7 +205,7 @@ systemctl start a2a.service
 | 启动报 allowlist 缺失 | 运行 `picoclaw a2a-server init --agents ...`（生产不要开 `allow_default_agents`） |
 | 启动报 data_dir 被占用 | 已有一个服务端在跑；先停掉，或检查 `.a2a.lock` 的残留（仅非 unix 平台） |
 | 启动报文件 group/world writable | `chmod 600 <file>`；目录 `chmod 700` |
-| 客户端 `allow_from` 为空拒绝启动 | 填入全部 8 个 agent slug |
+| 客户端 `allow_from` 为空拒绝启动 | 填入平台白名单中的全部 agent slug |
 | 客户端一直 304 但收不到消息 | 检查 `state_file` 权限/是否被其他 agent 复用；删掉状态文件会重投未读 |
 | 收不到回信/对端 sig_state=mismatch | 双方 key 不一致；`GET /a2a/keys` 核对，或重新 register/redeem |
 

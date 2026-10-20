@@ -134,8 +134,8 @@ func TestConversationIDMatchesLegacy(t *testing.T) {
 	cases := []struct {
 		a, b, want string
 	}{
-		{"fei", "vu", "c_c120d1e91ce7840f"},
-		{"vu", "fei", "c_c120d1e91ce7840f"},
+		{"alpha", "beta", "c_4163834372780d81"},
+		{"beta", "alpha", "c_4163834372780d81"},
 		{"alice", "bob", "c_141a4cd242b67e82"},
 	}
 	for _, tc := range cases {
@@ -167,7 +167,7 @@ func TestEmptyAllowlistRefusedWithoutOptIn(t *testing.T) {
 
 func TestGroupWorldWritableFileRefused(t *testing.T) {
 	dir := t.TempDir()
-	if _, err := InitData(InitOptions{DataDir: dir, Agents: []string{"fei", "vu"}}); err != nil {
+	if _, err := InitData(InitOptions{DataDir: dir, Agents: []string{"alpha", "beta"}}); err != nil {
 		t.Fatalf("InitData: %v", err)
 	}
 	if err := os.Chmod(filepath.Join(dir, "allowlist.json"), 0o666); err != nil {
@@ -179,8 +179,8 @@ func TestGroupWorldWritableFileRefused(t *testing.T) {
 }
 
 func TestETagAnd304(t *testing.T) {
-	s := newTestSrv(t, "strict", "fei", "vu")
-	token := s.tokens["vu"]
+	s := newTestSrv(t, "strict", "alpha", "beta")
+	token := s.tokens["beta"]
 	code, data, headers := s.request(t, http.MethodGet, "/api/v1/home", token, nil)
 	if code != http.StatusOK {
 		t.Fatalf("home status = %d body=%s", code, data)
@@ -193,9 +193,9 @@ func TestETagAnd304(t *testing.T) {
 	if code != http.StatusNotModified || len(body) != 0 {
 		t.Fatalf("304 check: status=%d body=%q", code, body)
 	}
-	seed := s.redeem(t, "fei")
+	seed := s.redeem(t, "alpha")
 	signer, _ := wire.NewSigner(seed)
-	if code, data := s.send(t, "fei", "vu", "ping", signer); code != http.StatusOK {
+	if code, data := s.send(t, "alpha", "beta", "ping", signer); code != http.StatusOK {
 		t.Fatalf("send status=%d body=%s", code, data)
 	}
 	code, _, headers = s.request(t, http.MethodGet, "/api/v1/home", token, nil)
@@ -229,15 +229,15 @@ func (s *testSrv) requestWithHeader(t *testing.T, method, path, token, body, key
 }
 
 func TestReadSemantics(t *testing.T) {
-	s := newTestSrv(t, "strict", "fei", "vu")
-	seed := s.redeem(t, "fei")
+	s := newTestSrv(t, "strict", "alpha", "beta")
+	seed := s.redeem(t, "alpha")
 	signer, _ := wire.NewSigner(seed)
-	if code, data := s.send(t, "fei", "vu", "hello", signer); code != http.StatusOK {
+	if code, data := s.send(t, "alpha", "beta", "hello", signer); code != http.StatusOK {
 		t.Fatalf("send: %d %s", code, data)
 	}
 
 	var home HomeView
-	_, data, _ := s.request(t, http.MethodGet, "/api/v1/home", s.tokens["vu"], nil)
+	_, data, _ := s.request(t, http.MethodGet, "/api/v1/home", s.tokens["beta"], nil)
 	if err := json.Unmarshal(data, &home); err != nil {
 		t.Fatalf("home decode: %v", err)
 	}
@@ -246,7 +246,7 @@ func TestReadSemantics(t *testing.T) {
 	}
 	convID := home.Conversations[0].ID
 
-	code, data, _ := s.request(t, http.MethodGet, "/api/v1/a2a/conversations/"+convID+"?peek=1", s.tokens["vu"], nil)
+	code, data, _ := s.request(t, http.MethodGet, "/api/v1/a2a/conversations/"+convID+"?peek=1", s.tokens["beta"], nil)
 	if code != http.StatusOK {
 		t.Fatalf("peek status=%d body=%s", code, data)
 	}
@@ -257,13 +257,13 @@ func TestReadSemantics(t *testing.T) {
 	if peek.UnreadCleared != 0 {
 		t.Fatalf("peek cleared %d unread, want 0", peek.UnreadCleared)
 	}
-	_, data, _ = s.request(t, http.MethodGet, "/api/v1/home", s.tokens["vu"], nil)
+	_, data, _ = s.request(t, http.MethodGet, "/api/v1/home", s.tokens["beta"], nil)
 	_ = json.Unmarshal(data, &home)
 	if home.UnreadTotal != 1 {
 		t.Fatalf("unread after peek = %d, want 1", home.UnreadTotal)
 	}
 
-	_, data, _ = s.request(t, http.MethodGet, "/api/v1/a2a/conversations/"+convID, s.tokens["vu"], nil)
+	_, data, _ = s.request(t, http.MethodGet, "/api/v1/a2a/conversations/"+convID, s.tokens["beta"], nil)
 	var detail struct {
 		UnreadCleared int `json:"unread_cleared"`
 	}
@@ -271,7 +271,7 @@ func TestReadSemantics(t *testing.T) {
 	if detail.UnreadCleared != 1 {
 		t.Fatalf("detail cleared %d unread, want 1", detail.UnreadCleared)
 	}
-	_, data, _ = s.request(t, http.MethodGet, "/api/v1/home", s.tokens["vu"], nil)
+	_, data, _ = s.request(t, http.MethodGet, "/api/v1/home", s.tokens["beta"], nil)
 	_ = json.Unmarshal(data, &home)
 	if home.UnreadTotal != 0 {
 		t.Fatalf("unread after detail = %d, want 0", home.UnreadTotal)
@@ -279,34 +279,34 @@ func TestReadSemantics(t *testing.T) {
 }
 
 func TestSendSignatureModes(t *testing.T) {
-	s := newTestSrv(t, "strict", "fei", "vu")
-	seed := s.redeem(t, "fei")
+	s := newTestSrv(t, "strict", "alpha", "beta")
+	seed := s.redeem(t, "alpha")
 	signer, _ := wire.NewSigner(seed)
 	otherSeed := make([]byte, ed25519.SeedSize)
 	_, _ = rand.Read(otherSeed)
 	wrongSigner, _ := wire.NewSigner(otherSeed)
 
-	if code, _ := s.send(t, "fei", "vu", "unsigned", nil); code != http.StatusForbidden {
+	if code, _ := s.send(t, "alpha", "beta", "unsigned", nil); code != http.StatusForbidden {
 		t.Fatalf("unsigned strict status = %d, want 403", code)
 	}
-	if code, _ := s.send(t, "fei", "vu", "bad sig", wrongSigner); code != http.StatusForbidden {
+	if code, _ := s.send(t, "alpha", "beta", "bad sig", wrongSigner); code != http.StatusForbidden {
 		t.Fatalf("bad signature status = %d, want 403", code)
 	}
 
 	// Stale timestamp.
 	ts := time.Now().Add(-10 * time.Minute).Unix()
 	nonce := "00112233445566778899aabbccddeeff"
-	sig := signer.SignAt("fei", "vu", ts, nonce, "stale")
+	sig := signer.SignAt("alpha", "beta", ts, nonce, "stale")
 	body, _ := json.Marshal(wire.SendRequest{Content: "stale", Timestamp: ts, Nonce: nonce, Sig: sig})
-	if code, _, _ := s.request(t, http.MethodPost, "/a2a/vu", s.tokens["fei"], body); code != http.StatusForbidden {
+	if code, _, _ := s.request(t, http.MethodPost, "/a2a/beta", s.tokens["alpha"], body); code != http.StatusForbidden {
 		t.Fatalf("stale signature status = %d, want 403", code)
 	}
 
 	// Valid signature.
 	ts = time.Now().Unix()
-	sig = signer.SignAt("fei", "vu", ts, nonce, "ok")
+	sig = signer.SignAt("alpha", "beta", ts, nonce, "ok")
 	body, _ = json.Marshal(wire.SendRequest{Content: "ok", Timestamp: ts, Nonce: nonce, Sig: sig})
-	code, data, _ := s.request(t, http.MethodPost, "/a2a/vu", s.tokens["fei"], body)
+	code, data, _ := s.request(t, http.MethodPost, "/a2a/beta", s.tokens["alpha"], body)
 	if code != http.StatusOK {
 		t.Fatalf("valid signature status=%d body=%s", code, data)
 	}
@@ -317,14 +317,14 @@ func TestSendSignatureModes(t *testing.T) {
 	}
 
 	// Replaying the same signed body must be rejected.
-	if code, _, _ := s.request(t, http.MethodPost, "/a2a/vu", s.tokens["fei"], body); code != http.StatusForbidden {
+	if code, _, _ := s.request(t, http.MethodPost, "/a2a/beta", s.tokens["alpha"], body); code != http.StatusForbidden {
 		t.Fatalf("replayed nonce status = %d, want 403", code)
 	}
 }
 
 func TestWarnModeAcceptsUnsigned(t *testing.T) {
-	s := newTestSrv(t, "warn", "fei", "vu")
-	code, data := s.send(t, "fei", "vu", "unsigned", nil)
+	s := newTestSrv(t, "warn", "alpha", "beta")
+	code, data := s.send(t, "alpha", "beta", "unsigned", nil)
 	if code != http.StatusOK {
 		t.Fatalf("warn mode unsigned status=%d body=%s", code, data)
 	}
@@ -336,17 +336,17 @@ func TestWarnModeAcceptsUnsigned(t *testing.T) {
 }
 
 func TestSendValidationErrors(t *testing.T) {
-	s := newTestSrv(t, "strict", "fei", "vu")
+	s := newTestSrv(t, "strict", "alpha", "beta")
 
 	if code, _, _ := s.request(t, http.MethodGet, "/api/v1/home", "", nil); code != http.StatusUnauthorized {
 		t.Fatalf("missing auth status = %d, want 401", code)
 	}
-	if code, _ := s.send(t, "fei", "nobody", "x", nil); code != http.StatusForbidden {
+	if code, _ := s.send(t, "alpha", "nobody", "x", nil); code != http.StatusForbidden {
 		t.Fatalf("unknown recipient status = %d, want 403", code)
 	}
 	// Wrong content type is checked before auth-independent decoding.
-	req, _ := http.NewRequest(http.MethodPost, s.base+"/a2a/vu", strings.NewReader(`{"content":"x"}`))
-	req.Header.Set("Authorization", "Bearer "+s.tokens["fei"])
+	req, _ := http.NewRequest(http.MethodPost, s.base+"/a2a/beta", strings.NewReader(`{"content":"x"}`))
+	req.Header.Set("Authorization", "Bearer "+s.tokens["alpha"])
 	req.Header.Set("Content-Type", "text/plain")
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -356,24 +356,24 @@ func TestSendValidationErrors(t *testing.T) {
 	if resp.StatusCode != http.StatusUnsupportedMediaType {
 		t.Fatalf("wrong content type status = %d, want 415", resp.StatusCode)
 	}
-	if code, _, _ := s.request(t, http.MethodPost, "/a2a/vu", s.tokens["fei"], "{}"); code != http.StatusUnprocessableEntity {
+	if code, _, _ := s.request(t, http.MethodPost, "/a2a/beta", s.tokens["alpha"], "{}"); code != http.StatusUnprocessableEntity {
 		t.Fatalf("empty body status = %d, want 422", code)
 	}
-	if code, _, _ := s.request(t, http.MethodPost, "/a2a/vu", s.tokens["fei"], map[string]string{"content": strings.Repeat("x", wire.MaxMessageRunes+1)}); code != http.StatusUnprocessableEntity {
+	if code, _, _ := s.request(t, http.MethodPost, "/a2a/beta", s.tokens["alpha"], map[string]string{"content": strings.Repeat("x", wire.MaxMessageRunes+1)}); code != http.StatusUnprocessableEntity {
 		t.Fatalf("too long status = %d, want 422", code)
 	}
 }
 
 func TestKeyLifecycle(t *testing.T) {
-	s := newTestSrv(t, "strict", "fei", "vu")
-	_ = s.redeem(t, "fei")
+	s := newTestSrv(t, "strict", "alpha", "beta")
+	_ = s.redeem(t, "alpha")
 
 	pub, _, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
 		t.Fatal(err)
 	}
 	pubB64 := base64.RawURLEncoding.EncodeToString(pub)
-	code, data, _ := s.request(t, http.MethodPost, "/a2a/keys/register", s.tokens["fei"], map[string]any{
+	code, data, _ := s.request(t, http.MethodPost, "/a2a/keys/register", s.tokens["alpha"], map[string]any{
 		"public_key":           pubB64,
 		"retire_platform_seed": true,
 	})
@@ -390,7 +390,7 @@ func TestKeyLifecycle(t *testing.T) {
 		t.Fatalf("register result = %s", data)
 	}
 	// Redeem after retiring the platform seed must be refused.
-	code, _, _ = s.request(t, http.MethodPost, "/a2a/keys/redeem", s.tokens["fei"], "{}")
+	code, _, _ = s.request(t, http.MethodPost, "/a2a/keys/redeem", s.tokens["alpha"], "{}")
 	if code != http.StatusConflict {
 		t.Fatalf("redeem after retire status = %d, want 409", code)
 	}
@@ -402,8 +402,8 @@ func TestRetentionGC(t *testing.T) {
 	state := diskState{
 		Version: 1,
 		Messages: []*Message{
-			{ID: "m_old", ConvID: ConversationID("fei", "vu"), From: "fei", To: "vu", Body: "old", CreatedAt: now.Add(-25 * time.Hour)},
-			{ID: "m_new", ConvID: ConversationID("fei", "vu"), From: "fei", To: "vu", Body: "new", CreatedAt: now.Add(-time.Hour)},
+			{ID: "m_old", ConvID: ConversationID("alpha", "beta"), From: "alpha", To: "beta", Body: "old", CreatedAt: now.Add(-25 * time.Hour)},
+			{ID: "m_new", ConvID: ConversationID("alpha", "beta"), From: "alpha", To: "beta", Body: "new", CreatedAt: now.Add(-time.Hour)},
 		},
 	}
 	raw, _ := json.Marshal(state)
@@ -422,7 +422,7 @@ func TestRetentionGC(t *testing.T) {
 }
 
 func TestStaticEndpoints(t *testing.T) {
-	s := newTestSrv(t, "strict", "fei")
+	s := newTestSrv(t, "strict", "alpha")
 	code, py, _ := s.request(t, http.MethodGet, "/sign.py", "", nil)
 	if code != http.StatusOK || len(py) == 0 {
 		t.Fatalf("sign.py status=%d len=%d", code, len(py))
@@ -436,23 +436,23 @@ func TestStaticEndpoints(t *testing.T) {
 	if len(fields) == 0 || fields[0] != hex.EncodeToString(sum[:]) {
 		t.Fatalf("sign.py hash mismatch: endpoint=%q want=%s", strings.TrimSpace(string(hash)), hex.EncodeToString(sum[:]))
 	}
-	code, did, _ := s.request(t, http.MethodGet, "/agents/fei/did.json", "", nil)
-	if code != http.StatusOK || !bytes.Contains(did, []byte("did:web:test.example:agents:fei")) {
+	code, did, _ := s.request(t, http.MethodGet, "/agents/alpha/did.json", "", nil)
+	if code != http.StatusOK || !bytes.Contains(did, []byte("did:web:test.example:agents:alpha")) {
 		t.Fatalf("agent did status=%d body=%s", code, did)
 	}
 }
 
 func TestInitAddAgents(t *testing.T) {
 	dir := t.TempDir()
-	if _, err := InitData(InitOptions{DataDir: dir, Agents: []string{"fei", "vu"}}); err != nil {
+	if _, err := InitData(InitOptions{DataDir: dir, Agents: []string{"alpha", "beta"}}); err != nil {
 		t.Fatalf("InitData: %v", err)
 	}
-	res, err := InitData(InitOptions{DataDir: dir, AddAgents: []string{"hao"}})
+	res, err := InitData(InitOptions{DataDir: dir, AddAgents: []string{"gamma"}})
 	if err != nil {
 		t.Fatalf("InitData add: %v", err)
 	}
-	if len(res.Tokens) != 1 || res.Tokens["hao"] == "" {
-		t.Fatalf("add tokens = %v, want hao token", res.Tokens)
+	if len(res.Tokens) != 1 || res.Tokens["gamma"] == "" {
+		t.Fatalf("add tokens = %v, want gamma token", res.Tokens)
 	}
 	al, err := readAllowlist(filepath.Join(dir, "allowlist.json"))
 	if err != nil {
@@ -462,14 +462,14 @@ func TestInitAddAgents(t *testing.T) {
 		t.Fatalf("allowlist agents = %d, want 3", len(al.Agents))
 	}
 	plain, _ := readTokenPlain(filepath.Join(dir, "tokens.txt"))
-	if plain["hao"] != res.Tokens["hao"] {
+	if plain["gamma"] != res.Tokens["gamma"] {
 		t.Fatalf("tokens.txt missing the new token")
 	}
 }
 
 func TestCheckDataReportsProblems(t *testing.T) {
 	dir := t.TempDir()
-	if _, err := InitData(InitOptions{DataDir: dir, Agents: []string{"fei", "vu"}}); err != nil {
+	if _, err := InitData(InitOptions{DataDir: dir, Agents: []string{"alpha", "beta"}}); err != nil {
 		t.Fatalf("InitData: %v", err)
 	}
 	rep := CheckData(CheckOptions{DataDir: dir, Listen: "127.0.0.1:0"})
@@ -500,7 +500,7 @@ func TestNonLoopbackListenRefused(t *testing.T) {
 
 func TestCheckNeverWrites(t *testing.T) {
 	dir := t.TempDir()
-	if _, err := InitData(InitOptions{DataDir: dir, Agents: []string{"fei", "vu"}}); err != nil {
+	if _, err := InitData(InitOptions{DataDir: dir, Agents: []string{"alpha", "beta"}}); err != nil {
 		t.Fatalf("InitData: %v", err)
 	}
 	before := map[string]time.Time{}

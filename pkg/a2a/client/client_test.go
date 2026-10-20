@@ -77,7 +77,7 @@ func TestSendSignedRetriesReuseExactBody(t *testing.T) {
 	defer srv.Close()
 
 	c := New(srv.URL, "token", 5*time.Second)
-	res, err := c.SendSigned(context.Background(), "fei", "vu", "hello", testSigner(t), SendOptions{
+	res, err := c.SendSigned(context.Background(), "alpha", "beta", "hello", testSigner(t), SendOptions{
 		MaxAttempts: 3,
 		BaseBackoff: time.Millisecond,
 	})
@@ -105,7 +105,7 @@ func TestSendSignedNonceReplayNotRetried(t *testing.T) {
 	defer srv.Close()
 
 	c := New(srv.URL, "token", 5*time.Second)
-	_, err := c.SendSigned(context.Background(), "fei", "vu", "hello", testSigner(t), SendOptions{
+	_, err := c.SendSigned(context.Background(), "alpha", "beta", "hello", testSigner(t), SendOptions{
 		MaxAttempts: 5,
 		BaseBackoff: time.Millisecond,
 	})
@@ -127,7 +127,7 @@ func TestSendSignedPermanentErrorNotRetried(t *testing.T) {
 	defer srv.Close()
 
 	c := New(srv.URL, "token", 5*time.Second)
-	_, err := c.SendSigned(context.Background(), "fei", "vu", "hello", testSigner(t), SendOptions{
+	_, err := c.SendSigned(context.Background(), "alpha", "beta", "hello", testSigner(t), SendOptions{
 		MaxAttempts: 5,
 		BaseBackoff: time.Millisecond,
 	})
@@ -154,7 +154,7 @@ func TestSendSignedRetries429(t *testing.T) {
 	defer srv.Close()
 
 	c := New(srv.URL, "token", 5*time.Second)
-	if _, err := c.SendSigned(context.Background(), "fei", "vu", "hi", testSigner(t), SendOptions{
+	if _, err := c.SendSigned(context.Background(), "alpha", "beta", "hi", testSigner(t), SendOptions{
 		MaxAttempts: 2,
 		BaseBackoff: time.Millisecond,
 	}); err != nil {

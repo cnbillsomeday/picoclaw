@@ -115,7 +115,7 @@ func newTestChannel(t *testing.T, platform *testPlatform, slug string, dryRun bo
 	bc := &config.Channel{
 		Enabled:   true,
 		Type:      config.ChannelA2A,
-		AllowFrom: config.FlexibleStringSlice{"fei", "vu"},
+		AllowFrom: config.FlexibleStringSlice{"alpha", "beta"},
 	}
 	settings := &config.A2ASettings{
 		BaseURL:         platform.base,
@@ -156,10 +156,10 @@ func sendAs(t *testing.T, platform *testPlatform, from, to, content string) *wir
 }
 
 func TestA2AChannelInboundOutbound(t *testing.T) {
-	platform := startTestPlatform(t, "fei", "vu")
-	sent := sendAs(t, platform, "fei", "vu", "hello vu")
+	platform := startTestPlatform(t, "alpha", "beta")
+	sent := sendAs(t, platform, "alpha", "beta", "hello beta")
 
-	ch, mb := newTestChannel(t, platform, "vu", false)
+	ch, mb := newTestChannel(t, platform, "beta", false)
 	ctx, cancel := context.WithCancel(context.Background())
 	if err := ch.Start(ctx); err != nil {
 		t.Fatalf("channel.Start: %v", err)
@@ -177,11 +177,11 @@ func TestA2AChannelInboundOutbound(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("timed out waiting for inbound message")
 	}
-	if inbound.Content != "hello vu" {
-		t.Fatalf("inbound content = %q, want %q", inbound.Content, "hello vu")
+	if inbound.Content != "hello beta" {
+		t.Fatalf("inbound content = %q, want %q", inbound.Content, "hello beta")
 	}
-	if inbound.ChatID != "fei" {
-		t.Fatalf("inbound chat id = %q, want fei", inbound.ChatID)
+	if inbound.ChatID != "alpha" {
+		t.Fatalf("inbound chat id = %q, want alpha", inbound.ChatID)
 	}
 	if inbound.Channel != "a2a" {
 		t.Fatalf("inbound channel = %q, want a2a", inbound.Channel)
@@ -190,8 +190,8 @@ func TestA2AChannelInboundOutbound(t *testing.T) {
 		t.Fatalf("inbound message id = %q, want %q", inbound.MessageID, sent.MessageID)
 	}
 
-	// Reply goes back to fei and must be signed by vu.
-	ids, err := ch.Send(context.Background(), bus.OutboundMessage{ChatID: "fei", Content: "hello fei"})
+	// Reply goes back to alpha and must be signed by beta.
+	ids, err := ch.Send(context.Background(), bus.OutboundMessage{ChatID: "alpha", Content: "hello alpha"})
 	if err != nil {
 		t.Fatalf("channel.Send: %v", err)
 	}
@@ -199,34 +199,34 @@ func TestA2AChannelInboundOutbound(t *testing.T) {
 		t.Fatalf("send ids = %v, want one message id", ids)
 	}
 
-	feiClient := client.New(platform.base, platform.tokens["fei"], 5*time.Second)
-	home, _, _, err := feiClient.Home(context.Background(), "")
+	alphaClient := client.New(platform.base, platform.tokens["alpha"], 5*time.Second)
+	home, _, _, err := alphaClient.Home(context.Background(), "")
 	if err != nil {
-		t.Fatalf("fei home: %v", err)
+		t.Fatalf("alpha home: %v", err)
 	}
 	if home.UnreadTotal != 1 {
-		t.Fatalf("fei unread = %d, want 1", home.UnreadTotal)
+		t.Fatalf("alpha unread = %d, want 1", home.UnreadTotal)
 	}
 	convID := home.Conversations[0].ID
-	detail, err := feiClient.Conversation(context.Background(), convID, true)
+	detail, err := alphaClient.Conversation(context.Background(), convID, true)
 	if err != nil {
-		t.Fatalf("fei conversation: %v", err)
+		t.Fatalf("alpha conversation: %v", err)
 	}
 	last := detail.Messages[len(detail.Messages)-1]
-	if last.BodyText() != "hello fei" {
-		t.Fatalf("reply body = %q, want %q", last.BodyText(), "hello fei")
+	if last.BodyText() != "hello alpha" {
+		t.Fatalf("reply body = %q, want %q", last.BodyText(), "hello alpha")
 	}
 	if !last.Signed || last.SigState != "ok" {
 		t.Fatalf("reply signature state = %v/%q, want true/ok", last.Signed, last.SigState)
 	}
 
-	// Unread must have been cleared on vu's side after delivery.
-	vuHome, _, _, err := client.New(platform.base, platform.tokens["vu"], 5*time.Second).Home(context.Background(), "")
+	// Unread must have been cleared on beta's side after delivery.
+	betaHome, _, _, err := client.New(platform.base, platform.tokens["beta"], 5*time.Second).Home(context.Background(), "")
 	if err != nil {
-		t.Fatalf("vu home: %v", err)
+		t.Fatalf("beta home: %v", err)
 	}
-	if vuHome.UnreadTotal != 0 {
-		t.Fatalf("vu unread = %d, want 0 after delivery", vuHome.UnreadTotal)
+	if betaHome.UnreadTotal != 0 {
+		t.Fatalf("beta unread = %d, want 0 after delivery", betaHome.UnreadTotal)
 	}
 
 	// State must be persisted with the ETag and seen message. The poller saves
@@ -259,10 +259,10 @@ func TestA2AChannelInboundOutbound(t *testing.T) {
 }
 
 func TestA2AChannelDryRunDoesNotDeliverOrSend(t *testing.T) {
-	platform := startTestPlatform(t, "fei", "vu")
-	sendAs(t, platform, "fei", "vu", "should stay unread")
+	platform := startTestPlatform(t, "alpha", "beta")
+	sendAs(t, platform, "alpha", "beta", "should stay unread")
 
-	ch, mb := newTestChannel(t, platform, "vu", true)
+	ch, mb := newTestChannel(t, platform, "beta", true)
 	ctx, cancel := context.WithCancel(context.Background())
 	if err := ch.Start(ctx); err != nil {
 		t.Fatalf("channel.Start: %v", err)
@@ -283,29 +283,29 @@ func TestA2AChannelDryRunDoesNotDeliverOrSend(t *testing.T) {
 	default:
 	}
 
-	vuHome, _, _, err := client.New(platform.base, platform.tokens["vu"], 5*time.Second).Home(context.Background(), "")
+	betaHome, _, _, err := client.New(platform.base, platform.tokens["beta"], 5*time.Second).Home(context.Background(), "")
 	if err != nil {
-		t.Fatalf("vu home: %v", err)
+		t.Fatalf("beta home: %v", err)
 	}
-	if vuHome.UnreadTotal != 1 {
-		t.Fatalf("vu unread = %d, want 1 (dry_run must not clear)", vuHome.UnreadTotal)
+	if betaHome.UnreadTotal != 1 {
+		t.Fatalf("beta unread = %d, want 1 (dry_run must not clear)", betaHome.UnreadTotal)
 	}
 
-	if _, err := ch.Send(context.Background(), bus.OutboundMessage{ChatID: "fei", Content: "should not send"}); err != nil {
+	if _, err := ch.Send(context.Background(), bus.OutboundMessage{ChatID: "alpha", Content: "should not send"}); err != nil {
 		t.Fatalf("dry_run send returned error: %v", err)
 	}
-	feiHome, _, _, err := client.New(platform.base, platform.tokens["fei"], 5*time.Second).Home(context.Background(), "")
+	alphaHome, _, _, err := client.New(platform.base, platform.tokens["alpha"], 5*time.Second).Home(context.Background(), "")
 	if err != nil {
-		t.Fatalf("fei home: %v", err)
+		t.Fatalf("alpha home: %v", err)
 	}
-	if feiHome.UnreadTotal != 0 {
-		t.Fatalf("fei unread = %d, want 0 (dry_run must not send)", feiHome.UnreadTotal)
+	if alphaHome.UnreadTotal != 0 {
+		t.Fatalf("alpha unread = %d, want 0 (dry_run must not send)", alphaHome.UnreadTotal)
 	}
 }
 
 func TestA2AChannelRequiresAllowFrom(t *testing.T) {
 	bc := &config.Channel{Enabled: true, Type: config.ChannelA2A}
-	settings := &config.A2ASettings{BaseURL: "http://127.0.0.1:1", AgentSlug: "vu", Token: *config.NewSecureString("t")}
+	settings := &config.A2ASettings{BaseURL: "http://127.0.0.1:1", AgentSlug: "beta", Token: *config.NewSecureString("t")}
 	if _, err := NewA2AChannel(bc, settings, bus.NewMessageBus()); err == nil {
 		t.Fatal("NewA2AChannel accepted an empty allow_from list")
 	}
@@ -331,7 +331,7 @@ func TestChannelStateCorruptReset(t *testing.T) {
 	if err := os.WriteFile(path, []byte("not json"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	st, err := loadChannelState(path, "vu")
+	st, err := loadChannelState(path, "beta")
 	if err == nil {
 		t.Fatal("loadChannelState accepted corrupt JSON")
 	}
