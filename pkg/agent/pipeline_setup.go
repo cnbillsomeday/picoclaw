@@ -158,6 +158,7 @@ func (p *Pipeline) SetupTurn(ctx context.Context, ts *turnState) (*turnExecution
 	exec.llmModelName = activeModelName
 	exec.activeProvider = activeProvider
 	exec.usedLight = usedLight
+	exec.loopDetector = newLoopDetector(cfg.Agents.Defaults.LoopDetection, cfg.Agents.Defaults.Routing)
 
 	return exec, nil
 }

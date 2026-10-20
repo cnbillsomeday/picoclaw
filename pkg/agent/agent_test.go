@@ -5484,6 +5484,7 @@ func TestAgentLoop_ToolLimitUsesDedicatedFallback(t *testing.T) {
 				ModelName:         "test-model",
 				MaxTokens:         4096,
 				MaxToolIterations: 1,
+				TurnGraceCall:     boolPtr(false),
 			},
 		},
 	}
@@ -5497,8 +5498,8 @@ func TestAgentLoop_ToolLimitUsesDedicatedFallback(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ProcessDirectWithChannel failed: %v", err)
 	}
-	if response != toolLimitResponse {
-		t.Fatalf("response = %q, want %q", response, toolLimitResponse)
+	if !strings.Contains(response, "maximum number of tool iterations") {
+		t.Fatalf("response = %q, want a max-iterations soft-landing summary", response)
 	}
 
 	defaultAgent := al.registry.GetDefaultAgent()
@@ -5519,8 +5520,8 @@ func TestAgentLoop_ToolLimitUsesDedicatedFallback(t *testing.T) {
 		t.Fatalf("history len = %d, want 4", len(history))
 	}
 	assertRoles(t, history, "user", "assistant", "tool", "assistant")
-	if history[3].Content != toolLimitResponse {
-		t.Fatalf("final assistant content = %q, want %q", history[3].Content, toolLimitResponse)
+	if history[3].Content != response {
+		t.Fatalf("final assistant content = %q, want %q", history[3].Content, response)
 	}
 }
 

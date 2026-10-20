@@ -133,16 +133,12 @@ type turnExecution struct {
 	activeProvider    providers.LLMProvider
 	usedLight         bool
 
-	// Routing guard state (repeat breaker + mid-turn escalation):
-	// - repeatLastSignature/repeatSignatureCount track consecutive identical
-	//   tool-call signatures to stop degenerate loops.
+	// Routing guard state (mid-turn escalation):
 	// - consecutiveToolIters counts consecutive tool-calling iterations for
 	//   the tool-intensity escalation trigger.
 	// - routingEscalated is a one-shot latch: the light pool hands the rest
 	//   of the turn to the primary pool at most once per turn (either because
 	//   a guard threshold hit or because the whole light pool failed).
-	repeatLastSignature  string
-	repeatSignatureCount int
 	consecutiveToolIters int
 	routingEscalated     bool
 
@@ -168,6 +164,19 @@ type turnExecution struct {
 	// Abort signaling for coordinator (set by Pipeline methods)
 	abortedByHardAbort bool // true when hard abort triggered during LLM/tools
 	abortedByHook      bool // true when HookActionAbortTurn triggered
+
+	// Long-turn governance state
+	loopDetector     *loopDetector
+	loopStopReason   string
+	loopStopDetail   string
+	loopStopMessage  string
+	budgetExceeded   bool
+	stepTimedOut     bool
+	toolsDisabled    bool
+	finalInstruction string
+	lastToolName     string
+	lastToolResult   string
+	lastLLMContent   string
 }
 
 func (exec *turnExecution) closeOwnedProviders() {
@@ -228,6 +237,12 @@ type turnState struct {
 	phase        TurnPhase
 	iteration    int
 	startedAt    time.Time
+	deadline     time.Time
+	timedOut     bool
+	stopReason   string
+	graceUsed    bool
+	lastTool     string
+	nowFn        func() time.Time
 	finalContent string
 
 	followUps []bus.InboundMessage
@@ -293,6 +308,7 @@ func newTurnState(agent *AgentInstance, opts processOptions, scope turnEventScop
 		media:        append([]string(nil), opts.Dispatch.Media...),
 		phase:        TurnPhaseSetup,
 		startedAt:    time.Now(),
+		nowFn:        time.Now,
 	}
 
 	// Bind session store and capture initial history length for rollback logic
@@ -416,6 +432,101 @@ func (ts *turnState) currentIteration() int {
 	ts.mu.RLock()
 	defer ts.mu.RUnlock()
 	return ts.iteration
+}
+
+func (ts *turnState) now() time.Time {
+	ts.mu.RLock()
+	nowFn := ts.nowFn
+	ts.mu.RUnlock()
+	if nowFn == nil {
+		return time.Now()
+	}
+	return nowFn()
+}
+
+func (ts *turnState) setDeadline(deadline time.Time) {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	ts.deadline = deadline
+}
+
+func (ts *turnState) deadlineExceeded() bool {
+	ts.mu.RLock()
+	deadline := ts.deadline
+	ts.mu.RUnlock()
+	return !deadline.IsZero() && !ts.now().Before(deadline)
+}
+
+// remainingBudget returns the time left before the turn deadline.
+// ok is false when no budget is configured.
+func (ts *turnState) remainingBudget() (time.Duration, bool) {
+	ts.mu.RLock()
+	deadline := ts.deadline
+	ts.mu.RUnlock()
+	if deadline.IsZero() {
+		return 0, false
+	}
+	remaining := deadline.Sub(ts.now())
+	if remaining < 0 {
+		remaining = 0
+	}
+	return remaining, true
+}
+
+func (ts *turnState) markTimedOut(reason string) {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	ts.timedOut = true
+	if reason != "" {
+		ts.stopReason = reason
+	}
+}
+
+func (ts *turnState) timedOutInfo() (bool, string) {
+	ts.mu.RLock()
+	defer ts.mu.RUnlock()
+	return ts.timedOut, ts.stopReason
+}
+
+func (ts *turnState) setStopReason(reason string) {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	ts.stopReason = reason
+}
+
+func (ts *turnState) stopReasonValue() string {
+	ts.mu.RLock()
+	defer ts.mu.RUnlock()
+	return ts.stopReason
+}
+
+// tryUseGraceCall consumes the one-shot final-summary allowance.
+func (ts *turnState) tryUseGraceCall() bool {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	if ts.graceUsed {
+		return false
+	}
+	ts.graceUsed = true
+	return true
+}
+
+func (ts *turnState) graceCallUsed() bool {
+	ts.mu.RLock()
+	defer ts.mu.RUnlock()
+	return ts.graceUsed
+}
+
+func (ts *turnState) setLastTool(name string) {
+	ts.mu.Lock()
+	defer ts.mu.Unlock()
+	ts.lastTool = name
+}
+
+func (ts *turnState) lastToolName() string {
+	ts.mu.RLock()
+	defer ts.mu.RUnlock()
+	return ts.lastTool
 }
 
 func (ts *turnState) setFinalContent(content string) {

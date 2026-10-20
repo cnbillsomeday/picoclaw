@@ -122,11 +122,41 @@ func (p *Pipeline) ExecuteTools(
 	messages := exec.messages
 	handledAttachments := make([]providers.Attachment, 0)
 
+	appendSkippedToolResults := func(from int, reason, message string) {
+		for j := from; j < len(normalizedToolCalls); j++ {
+			skippedTC := normalizedToolCalls[j]
+			al.emitEvent(
+				runtimeevents.KindAgentToolExecSkipped,
+				ts.eventMeta("runTurn", "turn.tool.skipped"),
+				ToolExecSkippedPayload{
+					Tool:   skippedTC.Name,
+					Reason: reason,
+				},
+			)
+			skippedMsg := providers.Message{
+				Role:       "tool",
+				Content:    message,
+				ToolCallID: skippedTC.ID,
+			}
+			messages = append(messages, skippedMsg)
+			if !ts.opts.NoHistory {
+				ts.agent.Sessions.AddFullMessage(ts.sessionKey, skippedMsg)
+				ts.recordPersistedMessage(skippedMsg)
+			}
+		}
+	}
+
 toolLoop:
 	for i, tc := range normalizedToolCalls {
 		if ts.hardAbortRequested() {
 			exec.abortedByHardAbort = true
 			return ToolControlBreak
+		}
+		if ts.deadlineExceeded() {
+			exec.budgetExceeded = true
+			exec.allResponsesHandled = false
+			appendSkippedToolResults(i, "turn time budget exhausted", "Skipped: turn time budget exhausted.")
+			break toolLoop
 		}
 
 		toolName := tc.Name
@@ -304,6 +334,7 @@ toolLoop:
 						}
 						toolResultMedia = append(toolResultMedia, hookResult.Media...)
 					}
+					contentForLLM = applyToolLoopGuard(ts, exec, toolName, toolArgs, contentForLLM, hookResult.IsError)
 					toolResultMsg := toolResultPromptMessage(contentForLLM, tc.ID, toolResultMedia)
 
 					al.emitEvent(
@@ -338,7 +369,10 @@ toolLoop:
 
 					skipReason := ""
 					skipMessage := ""
-					if len(exec.pendingMessages) > 0 {
+					if exec.loopStopReason != "" {
+						skipReason = "loop detection stopped the turn"
+						skipMessage = "Skipped: loop detection stopped the turn."
+					} else if len(exec.pendingMessages) > 0 {
 						skipReason = "queued user steering message"
 						skipMessage = "Skipped due to queued user message."
 					} else if gracefulPending, _ := ts.gracefulInterruptRequested(); gracefulPending {
@@ -694,6 +728,7 @@ toolLoop:
 		if len(toolResult.Media) > 0 && !toolResult.ResponseHandled {
 			toolResultMedia = append(toolResultMedia, toolResult.Media...)
 		}
+		contentForLLM = applyToolLoopGuard(ts, exec, toolName, toolArgs, contentForLLM, toolResult.IsError)
 		toolResultMsg := toolResultPromptMessage(contentForLLM, toolCallID, toolResultMedia)
 		al.emitEvent(
 			runtimeevents.KindAgentToolExecEnd,
@@ -726,7 +761,10 @@ toolLoop:
 
 		skipReason := ""
 		skipMessage := ""
-		if len(exec.pendingMessages) > 0 {
+		if exec.loopStopReason != "" {
+			skipReason = "loop detection stopped the turn"
+			skipMessage = "Skipped: loop detection stopped the turn."
+		} else if len(exec.pendingMessages) > 0 {
 			skipReason = "queued user steering message"
 			skipMessage = "Skipped due to queued user message."
 		} else if gracefulPending, _ := ts.gracefulInterruptRequested(); gracefulPending {
@@ -786,6 +824,11 @@ toolLoop:
 	}
 
 	exec.messages = messages
+	// A governance stop takes precedence over steering and the normal
+	// "continue to the next LLM call" path.
+	if exec.loopStopReason != "" || exec.budgetExceeded {
+		return ToolControlBreak
+	}
 
 	// Continue if pending steering exists (regardless of allResponsesHandled).
 	// This covers the case where tools were partially executed and skipped due to steering,

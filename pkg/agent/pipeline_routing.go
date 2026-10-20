@@ -3,13 +3,10 @@
 package agent
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
 
-	runtimeevents "github.com/sipeed/picoclaw/pkg/events"
 	"github.com/sipeed/picoclaw/pkg/logger"
 	"github.com/sipeed/picoclaw/pkg/providers"
 )
@@ -33,56 +30,6 @@ func steeringHardCap(maxIterations int) int {
 	return capValue
 }
 
-// repeatBreakerResponse is the user-facing message when the repeat breaker
-// stops a degenerate tool-call loop.
-const repeatBreakerResponse = "Detected a repeating tool-call loop (%d identical iterations in a row) and stopped this turn before it consumed more tokens. Try rephrasing the request, or run this task on your primary model."
-
-// toolCallSignature builds a stable, comparable signature for a turn's
-// normalized tool calls so degenerate "same tool, same arguments" repetition
-// can be detected across iterations.
-func toolCallSignature(calls []providers.ToolCall) string {
-	if len(calls) == 0 {
-		return ""
-	}
-	parts := make([]string, 0, len(calls))
-	for _, call := range calls {
-		parts = append(parts, call.Name+"?"+canonicalToolArgs(call))
-	}
-	sum := sha256.Sum256([]byte(strings.Join(parts, "\x00")))
-	return hex.EncodeToString(sum[:])
-}
-
-// canonicalToolArgs normalizes tool-call arguments into a deterministic
-// string so stylistic differences like key order or whitespace do not hide
-// a repeated call. Normalized tool calls carry Arguments as a parsed map;
-// the raw JSON string in Function.Arguments is the fallback.
-func canonicalToolArgs(call providers.ToolCall) string {
-	if len(call.Arguments) > 0 {
-		return marshalSortedJSON(call.Arguments)
-	}
-	if call.Function != nil {
-		return canonicalJSONString(call.Function.Arguments)
-	}
-	return ""
-}
-
-// canonicalJSONString re-encodes a JSON object string with sorted keys. Input
-// that is not a JSON object is returned trimmed as-is.
-func canonicalJSONString(value string) string {
-	trimmed := strings.TrimSpace(value)
-	if trimmed == "" {
-		return ""
-	}
-	var decoded any
-	if err := json.Unmarshal([]byte(trimmed), &decoded); err != nil {
-		return trimmed
-	}
-	if _, ok := decoded.(map[string]any); ok {
-		return marshalSortedJSON(decoded)
-	}
-	return trimmed
-}
-
 // marshalSortedJSON marshals a map[string]any with sorted keys (Go's JSON
 // encoder sorts map keys deterministically).
 func marshalSortedJSON(value any) string {
@@ -93,69 +40,25 @@ func marshalSortedJSON(value any) string {
 	return string(encoded)
 }
 
-func firstToolCallName(calls []providers.ToolCall) string {
-	if len(calls) == 0 {
-		return ""
-	}
-	return calls[0].Name
-}
-
-// ApplyRoutingGuards runs the v1.3.1 mid-turn routing guards after every LLM
-// iteration:
-//
-//  1. Repeat breaker (applies to every model tier): stops the turn when the
-//     model repeats the exact same tool call for RepeatBreakerIterations
-//     consecutive responses — the degenerate loop that silently burns
-//     millions of tokens.
-//  2. Light→primary escalation: re-routes the rest of the turn to the
-//     primary pool when a light-model response reports a ballooned prompt or
-//     the work proves tool-heavy.
-//
-// Returns (breakTurn, breakerContent). When breakTurn is true the caller must
-// end the turn with breakerContent as the final message.
-func (p *Pipeline) ApplyRoutingGuards(
+// ApplyRoutingEscalation re-routes the rest of a light-model turn to the
+// primary pool when a response reports a ballooned prompt or the work proves
+// tool-heavy. It is a no-op for primary-model turns.
+func (p *Pipeline) ApplyRoutingEscalation(
 	ts *turnState,
 	exec *turnExecution,
 	iteration int,
-) (bool, string) {
+) {
 	if ts == nil || ts.agent == nil || exec == nil || exec.response == nil {
-		return false, ""
+		return
 	}
 
 	hasToolCalls := len(exec.normalizedToolCalls) > 0
 	usage := exec.response.Usage
 	routingCfg := p.Cfg.Agents.Defaults.Routing
 
-	// --- Repeat breaker: identical consecutive tool calls (any tier) ---
-	if hasToolCalls {
-		signature := toolCallSignature(exec.normalizedToolCalls)
-		if signature == exec.repeatLastSignature {
-			exec.repeatSignatureCount++
-		} else {
-			exec.repeatLastSignature = signature
-			exec.repeatSignatureCount = 1
-		}
-		if breakerLimit := routingCfg.GetRepeatBreakerIterations(); breakerLimit > 0 &&
-			exec.repeatSignatureCount >= breakerLimit {
-			logger.ErrorCF("agent", "Repeat breaker: stopping degenerate tool-call loop", map[string]any{
-				"agent_id":  ts.agent.ID,
-				"iteration": iteration,
-				"model":     exec.llmModelName,
-				"repeats":   exec.repeatSignatureCount,
-				"tool":      firstToolCallName(exec.normalizedToolCalls),
-			})
-			p.emitAgentErrorEvent(ts, "repeat_breaker", fmt.Sprintf(
-				"repeat breaker after %d identical tool calls", exec.repeatSignatureCount))
-			return true, fmt.Sprintf(repeatBreakerResponse, exec.repeatSignatureCount)
-		}
-	} else {
-		exec.repeatLastSignature = ""
-		exec.repeatSignatureCount = 0
-	}
-
 	// --- Mid-turn escalation: light model → primary pool (one-shot) ---
 	if !exec.usedLight || exec.routingEscalated {
-		return false, ""
+		return
 	}
 
 	escalateReason := ""
@@ -176,7 +79,7 @@ func (p *Pipeline) ApplyRoutingGuards(
 		}
 	}
 	if escalateReason == "" {
-		return false, ""
+		return
 	}
 
 	primaryModel := strings.TrimSpace(ts.agent.Model)
@@ -196,7 +99,7 @@ func (p *Pipeline) ApplyRoutingGuards(
 			"reason":   escalateReason,
 			"error":    err.Error(),
 		})
-		return false, ""
+		return
 	}
 	applyTurnThinkingOptions(exec, ts.agent, exec.activeProvider, true)
 
@@ -208,7 +111,6 @@ func (p *Pipeline) ApplyRoutingGuards(
 		"model_name":    exec.llmModelName,
 		"prompt_tokens": usageTokensOrZero(usage),
 	})
-	return false, ""
 }
 
 func usageTokensOrZero(usage *providers.UsageInfo) int {
@@ -216,19 +118,6 @@ func usageTokensOrZero(usage *providers.UsageInfo) int {
 		return 0
 	}
 	return usage.PromptTokens
-}
-
-// emitAgentErrorEvent publishes a turn.error event with the given stage so
-// router/monitoring surfaces repeat-breaker stoppages like any other error.
-func (p *Pipeline) emitAgentErrorEvent(ts *turnState, stage, message string) {
-	p.al.emitEvent(
-		runtimeevents.KindAgentError,
-		ts.eventMeta("ApplyRoutingGuards", "turn.error"),
-		ErrorPayload{
-			Stage:   stage,
-			Message: message,
-		},
-	)
 }
 
 // switchExecCandidates repoints a running turn execution at a new candidate

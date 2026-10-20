@@ -520,6 +520,176 @@ type AgentDefaults struct {
 	TurnProfile               TurnProfileConfig  `json:"turn_profile,omitempty"`
 	MaxLLMRetries             int                `json:"max_llm_retries,omitempty"        env:"PICOCLAW_AGENTS_DEFAULTS_MAX_LLM_RETRIES"`
 	LLMRetryBackoffSecs       int                `json:"llm_retry_backoff_secs,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_LLM_RETRY_BACKOFF_SECS"`
+
+	// TurnTimeBudgetSeconds bounds the wall-clock duration of one turn.
+	// 0 disables the budget; a positive value triggers a graceful soft landing.
+	TurnTimeBudgetSeconds int `json:"turn_time_budget_seconds,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_TURN_TIME_BUDGET_SECONDS"`
+	// StepTimeoutSecs bounds a single LLM request. 0 disables the per-request cap.
+	StepTimeoutSecs int `json:"step_timeout_secs,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_STEP_TIMEOUT_SECS"`
+	// TurnGraceCall allows one tool-less final LLM call when a turn runs out of
+	// time or iterations. nil defaults to true.
+	TurnGraceCall *bool `json:"turn_grace_call,omitempty" env:"PICOCLAW_AGENTS_DEFAULTS_TURN_GRACE_CALL"`
+	// LoopDetection configures repeated-call / no-progress detection.
+	LoopDetection LoopDetectionConfig `json:"loop_detection,omitempty"`
+}
+
+// LoopDetectionConfig controls the turn-internal loop detector.
+//
+// The identical-error guard (default 3) is a safety baseline and always runs;
+// the other thresholds only apply when detection is enabled.
+type LoopDetectionConfig struct {
+	// Enabled defaults to true when omitted.
+	Enabled *bool `json:"enabled,omitempty" yaml:"-"`
+	// WindowSize is how many recent tool results are inspected (default 30).
+	WindowSize int `json:"window_size,omitempty" yaml:"-"`
+	// IdenticalErrorLimit stops the turn after N identical (tool,args,error)
+	// results in a row. Default 3; values < 0 are clamped to the default.
+	IdenticalErrorLimit int `json:"identical_error_limit,omitempty" yaml:"-"`
+	// RepeatWarnThresholds injects reminders at these consecutive identical
+	// (tool,args) counts (default [3,4]).
+	RepeatWarnThresholds []int `json:"repeat_warn_thresholds,omitempty" yaml:"-"`
+	// RepeatStopThreshold stops the turn at this consecutive identical
+	// (tool,args) count (default 5). Negative disables this specific guard.
+	RepeatStopThreshold int `json:"repeat_stop_threshold,omitempty" yaml:"-"`
+	// NoProgressLimit stops when the same tool returns the same result N times
+	// even with different arguments (default 5).
+	NoProgressLimit int `json:"no_progress_limit,omitempty" yaml:"-"`
+	// PingPongCycles stops A->B->A->B patterns after N cycles (default 4).
+	PingPongCycles int `json:"ping_pong_cycles,omitempty" yaml:"-"`
+	// CriticalThreshold stops any signature seen this many times in the window
+	// (default 20).
+	CriticalThreshold int `json:"critical_threshold,omitempty" yaml:"-"`
+	// IgnoreTools exempts tools from detection (e.g. status polls).
+	IgnoreTools []string `json:"ignore_tools,omitempty" yaml:"-"`
+	// MinElapsedSecs suppresses warnings/stops during the first N seconds.
+	MinElapsedSecs int `json:"min_elapsed_secs,omitempty" yaml:"-"`
+}
+
+// GetTurnTimeBudget returns the wall-clock budget for one turn (0 = off).
+func (d *AgentDefaults) GetTurnTimeBudget() time.Duration {
+	if d == nil || d.TurnTimeBudgetSeconds <= 0 {
+		return 0
+	}
+	return time.Duration(d.TurnTimeBudgetSeconds) * time.Second
+}
+
+// GetStepTimeout returns the per-LLM-request timeout (0 = off).
+func (d *AgentDefaults) GetStepTimeout() time.Duration {
+	if d == nil || d.StepTimeoutSecs <= 0 {
+		return 0
+	}
+	return time.Duration(d.StepTimeoutSecs) * time.Second
+}
+
+// GraceCallEnabled reports whether the tool-less final summary call is allowed.
+func (d *AgentDefaults) GraceCallEnabled() bool {
+	if d == nil || d.TurnGraceCall == nil {
+		return true
+	}
+	return *d.TurnGraceCall
+}
+
+// IsEnabled reports whether loop detection is enabled (default true).
+func (c *LoopDetectionConfig) IsEnabled() bool {
+	if c == nil || c.Enabled == nil {
+		return true
+	}
+	return *c.Enabled
+}
+
+// EffectiveWindowSize returns the detection window size.
+func (c *LoopDetectionConfig) EffectiveWindowSize() int {
+	if c == nil || c.WindowSize <= 0 {
+		return 30
+	}
+	return c.WindowSize
+}
+
+// EffectiveIdenticalErrorLimit returns the always-on identical-error guard.
+func (c *LoopDetectionConfig) EffectiveIdenticalErrorLimit() int {
+	if c == nil || c.IdenticalErrorLimit <= 0 {
+		return 3
+	}
+	return c.IdenticalErrorLimit
+}
+
+// EffectiveRepeatWarnThresholds returns the reminder thresholds.
+func (c *LoopDetectionConfig) EffectiveRepeatWarnThresholds() []int {
+	if c == nil || len(c.RepeatWarnThresholds) == 0 {
+		return []int{3, 4}
+	}
+	out := make([]int, 0, len(c.RepeatWarnThresholds))
+	for _, v := range c.RepeatWarnThresholds {
+		if v > 0 {
+			out = append(out, v)
+		}
+	}
+	if len(out) == 0 {
+		return []int{3, 4}
+	}
+	return out
+}
+
+// EffectiveRepeatStopThreshold returns the hard stop for identical calls.
+// It falls back to routing.repeat_breaker_iterations for v1.3.x compatibility.
+func (c *LoopDetectionConfig) EffectiveRepeatStopThreshold(routing *RoutingConfig) int {
+	if c != nil {
+		if c.RepeatStopThreshold > 0 {
+			return c.RepeatStopThreshold
+		}
+		if c.RepeatStopThreshold < 0 {
+			return 0
+		}
+	}
+	if routing != nil {
+		return routing.GetRepeatBreakerIterations()
+	}
+	return DefaultRoutingRepeatBreakerIterations
+}
+
+// EffectiveNoProgressLimit returns the no-progress stop threshold.
+func (c *LoopDetectionConfig) EffectiveNoProgressLimit() int {
+	if c == nil || c.NoProgressLimit <= 0 {
+		return 5
+	}
+	return c.NoProgressLimit
+}
+
+// EffectivePingPongCycles returns the ping-pong stop threshold.
+func (c *LoopDetectionConfig) EffectivePingPongCycles() int {
+	if c == nil || c.PingPongCycles <= 0 {
+		return 4
+	}
+	return c.PingPongCycles
+}
+
+// EffectiveCriticalThreshold returns the window-wide repetition threshold.
+func (c *LoopDetectionConfig) EffectiveCriticalThreshold() int {
+	if c == nil || c.CriticalThreshold <= 0 {
+		return 20
+	}
+	return c.CriticalThreshold
+}
+
+// MinElapsed returns the detection grace period.
+func (c *LoopDetectionConfig) MinElapsed() time.Duration {
+	if c == nil || c.MinElapsedSecs <= 0 {
+		return 0
+	}
+	return time.Duration(c.MinElapsedSecs) * time.Second
+}
+
+// IsIgnoredTool reports whether a tool is exempt from loop detection.
+func (c *LoopDetectionConfig) IsIgnoredTool(tool string) bool {
+	if c == nil {
+		return false
+	}
+	for _, name := range c.IgnoreTools {
+		if strings.EqualFold(strings.TrimSpace(name), strings.TrimSpace(tool)) {
+			return true
+		}
+	}
+	return false
 }
 
 const DefaultMaxMediaSize = 20 * 1024 * 1024 // 20 MB

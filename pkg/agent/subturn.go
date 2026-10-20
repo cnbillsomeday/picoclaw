@@ -330,10 +330,15 @@ func spawnSubTurn(
 		timeout = rtCfg.defaultTimeout
 	}
 
-	// 4. Create INDEPENDENT child context (not derived from parent ctx).
-	// This allows the child to continue running after parent finishes gracefully.
-	// The child has its own timeout for self-protection.
+	// 4. Create an independent child context (not derived from parent ctx) so
+	// the child can continue after a graceful parent finish. If the parent turn
+	// has a wall-clock budget, cap the child at the parent's remaining time so a
+	// sub-agent cannot outlive the parent's governance deadline.
 	childCtx, cancel := context.WithTimeout(context.Background(), timeout)
+	if remaining, ok := parentTS.remainingBudget(); ok && remaining < timeout {
+		cancel()
+		childCtx, cancel = context.WithDeadline(context.Background(), time.Now().Add(remaining))
+	}
 	defer cancel()
 
 	childID := al.generateSubTurnID()

@@ -24,6 +24,18 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 	defer turnCancel()
 	ts.setTurnCancel(turnCancel)
 
+	// The loop's LLM calls and tools run under workCtx, which carries the turn
+	// deadline. Finalize keeps using turnCtx so the final message can still be
+	// delivered after the budget has expired.
+	workCtx := turnCtx
+	if budget := pipeline.Cfg.Agents.Defaults.GetTurnTimeBudget(); budget > 0 {
+		deadline := ts.startedAt.Add(budget)
+		ts.setDeadline(deadline)
+		var workCancel context.CancelFunc
+		workCtx, workCancel = context.WithDeadline(turnCtx, deadline)
+		defer workCancel()
+	}
+
 	// Inject turnState and AgentLoop into context so tools (e.g. spawn) can retrieve them.
 	turnCtx = withTurnState(turnCtx, ts)
 	turnCtx = WithAgentLoop(turnCtx, al)
@@ -47,6 +59,10 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 				finalSuccessfulPath = append([]string(nil), attemptedSkills...)
 			}
 		}
+		timedOut, stopReason := ts.timedOutInfo()
+		if stopReason == "" {
+			stopReason = ts.stopReasonValue()
+		}
 		al.emitEvent(
 			runtimeevents.KindAgentTurnEnd,
 			ts.eventMeta("runTurn", "turn.end"),
@@ -64,6 +80,12 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 				SkillContextSnapshots: skillContextSnapshots,
 				ToolKinds:             ts.toolKindsSnapshot(),
 				ToolExecutions:        ts.toolExecutionsSnapshot(),
+				TimedOut:              timedOut,
+				ElapsedMS:             time.Since(ts.startedAt).Milliseconds(),
+				DeadlineSec:           int(pipeline.Cfg.Agents.Defaults.GetTurnTimeBudget().Seconds()),
+				StopReason:            stopReason,
+				LastTool:              ts.lastToolName(),
+				GraceCallUsed:         ts.graceCallUsed(),
 			},
 		)
 	}()
@@ -100,13 +122,13 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 	steeringHardCap := steeringHardCap(ts.agent.MaxIterations)
 	steeringCapWarned := false
 
-	for ts.currentIteration() < ts.agent.MaxIterations ||
+	for (ts.currentIteration() < ts.agent.MaxIterations ||
 		(len(exec.pendingMessages) > 0 &&
 			(steeringHardCap <= 0 || ts.currentIteration() < steeringHardCap)) ||
 		func() bool {
 			graceful, _ := ts.gracefulInterruptRequested()
 			return graceful
-		}() {
+		}()) && !ts.deadlineExceeded() {
 		if ts.hardAbortRequested() {
 			turnStatus = TurnEndStatusAborted
 			return al.abortTurn(ts)
@@ -215,7 +237,7 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 
 		// Execute LLM call via Pipeline
 		ts.setPhase(TurnPhaseRunning)
-		ctrl, callErr := pipeline.CallLLM(ctx, turnCtx, ts, exec, iteration)
+		ctrl, callErr := pipeline.CallLLM(ctx, workCtx, ts, exec, iteration)
 		if callErr != nil {
 			turnStatus = TurnEndStatusError
 			return turnResult{}, callErr
@@ -224,13 +246,23 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 		pendingMessages = exec.pendingMessages
 		finalContent = exec.finalContent
 
-		// v1.3.1 routing guards: stop degenerate tool-call loops and escalate
-		// an overmatched light model to the primary pool mid-turn.
-		if guardBreak, guardContent := pipeline.ApplyRoutingGuards(ts, exec, iteration); guardBreak {
-			turnStatus = TurnEndStatusError
-			exec.finalContent = guardContent
-			finalContent = guardContent
-			break
+		// Escalate an overmatched light model to the primary pool mid-turn.
+		pipeline.ApplyRoutingEscalation(ts, exec, iteration)
+
+		if exec.budgetExceeded || exec.stepTimedOut || ts.deadlineExceeded() {
+			exec.allResponsesHandled = false
+			reason := "budget"
+			if exec.stepTimedOut {
+				reason = "step_timeout"
+			}
+			ts.markTimedOut(reason)
+			turnStatus = TurnEndStatusTimeout
+			finalContent = pipeline.SoftLanding(ctx, turnCtx, ts, exec, reason)
+			result, finalizeErr := pipeline.Finalize(ctx, turnCtx, ts, exec, turnStatus, finalContent)
+			if finalizeErr != nil {
+				turnStatus = TurnEndStatusError
+			}
+			return result, finalizeErr
 		}
 
 		switch ctrl {
@@ -258,7 +290,7 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 			return result, finalizeErr
 		case ControlToolLoop:
 			// Execute tools via Pipeline
-			toolCtrl := pipeline.ExecuteTools(ctx, turnCtx, ts, exec, iteration)
+			toolCtrl := pipeline.ExecuteTools(ctx, workCtx, ts, exec, iteration)
 			switch toolCtrl {
 			case ToolControlContinue:
 				// Re-read exec.messages since ExecuteTools may have updated it
@@ -276,11 +308,24 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 					turnStatus = TurnEndStatusError
 					return turnResult{}, fmt.Errorf("hook requested turn abort")
 				}
-				// ExecuteTools returned ControlBreak:
-				// - allResponsesHandled=true: finalize without DefaultResponse (exec.finalContent empty)
-				// - allResponsesHandled=false: coordinator applies DefaultResponse before finalize
-				if exec.allResponsesHandled {
-					finalContent = ""
+				switch {
+				case exec.loopStopReason != "":
+					exec.allResponsesHandled = false
+					turnStatus = TurnEndStatusError
+					ts.setStopReason(exec.loopStopReason)
+					finalContent = BuildLoopStopMessage(ts, exec)
+				case exec.budgetExceeded || ts.deadlineExceeded():
+					exec.allResponsesHandled = false
+					turnStatus = TurnEndStatusTimeout
+					ts.markTimedOut("budget")
+					finalContent = pipeline.SoftLanding(ctx, turnCtx, ts, exec, "budget")
+				default:
+					// ExecuteTools returned ControlBreak:
+					// - allResponsesHandled=true: finalize without DefaultResponse (exec.finalContent empty)
+					// - allResponsesHandled=false: coordinator applies DefaultResponse before finalize
+					if exec.allResponsesHandled {
+						finalContent = ""
+					}
 				}
 				result, finalizeErr := pipeline.Finalize(ctx, turnCtx, ts, exec, turnStatus, finalContent)
 				if finalizeErr != nil {
@@ -296,9 +341,27 @@ func (al *AgentLoop) runTurn(ctx context.Context, ts *turnState, pipeline *Pipel
 		return al.abortTurn(ts)
 	}
 
-	if finalContent == "" {
+	switch {
+	case exec.loopStopReason != "":
+		exec.allResponsesHandled = false
+		turnStatus = TurnEndStatusError
+		ts.setStopReason(exec.loopStopReason)
+		finalContent = BuildLoopStopMessage(ts, exec)
+	case ts.deadlineExceeded() || exec.budgetExceeded || exec.stepTimedOut:
+		exec.allResponsesHandled = false
+		reason := "budget"
+		if exec.stepTimedOut && !ts.deadlineExceeded() {
+			reason = "step_timeout"
+		}
+		ts.markTimedOut(reason)
+		turnStatus = TurnEndStatusTimeout
+		finalContent = pipeline.SoftLanding(ctx, turnCtx, ts, exec, reason)
+	case finalContent == "":
 		if ts.currentIteration() >= ts.agent.MaxIterations && ts.agent.MaxIterations > 0 {
-			finalContent = toolLimitResponse
+			exec.allResponsesHandled = false
+			turnStatus = TurnEndStatusError
+			ts.setStopReason("max_iterations")
+			finalContent = pipeline.SoftLanding(ctx, turnCtx, ts, exec, "max_iterations")
 		} else {
 			finalContent = ts.opts.DefaultResponse
 		}

@@ -38,6 +38,10 @@ func (p *Pipeline) CallLLM(
 	exec.gracefulTerminal, _ = ts.gracefulInterruptRequested()
 	exec.providerToolDefs = ts.agent.Tools.ToProviderDefs()
 	exec.providerToolDefs = filterToolsByTurnProfile(exec.providerToolDefs, ts.profile)
+	if exec.toolsDisabled {
+		// Final summary call after a budget/iteration stop: no tools.
+		exec.providerToolDefs = nil
+	}
 
 	// Native web search support
 	webSearchEnabled := al.cfg.Tools.IsToolEnabled("web") && turnProfileToolAllowed(ts.profile, "web_search")
@@ -59,6 +63,12 @@ func (p *Pipeline) CallLLM(
 	}
 
 	exec.callMessages = exec.messages
+	if exec.finalInstruction != "" {
+		// Transient prompt for the one-shot final summary; never persisted.
+		hinted := append([]providers.Message(nil), exec.callMessages...)
+		hinted = append(hinted, providers.Message{Role: "user", Content: exec.finalInstruction})
+		exec.callMessages = hinted
+	}
 	if exec.gracefulTerminal {
 		exec.callMessages = append(append([]providers.Message(nil), exec.messages...), ts.interruptHintMessage())
 		exec.providerToolDefs = nil
@@ -185,10 +195,18 @@ func (p *Pipeline) CallLLM(
 		messagesForCall []providers.Message,
 		toolDefsForCall []providers.ToolDefinition,
 	) (*providers.LLMResponse, error) {
-		providerCtx, providerCancel := context.WithCancel(turnCtx)
+		providerCtx := turnCtx
+		var stepTimeoutCancel context.CancelFunc
+		if stepTimeout := p.Cfg.Agents.Defaults.GetStepTimeout(); stepTimeout > 0 {
+			providerCtx, stepTimeoutCancel = context.WithTimeout(providerCtx, stepTimeout)
+		}
+		providerCtx, providerCancel := context.WithCancel(providerCtx)
 		ts.setProviderCancel(providerCancel)
 		defer func() {
 			providerCancel()
+			if stepTimeoutCancel != nil {
+				stepTimeoutCancel()
+			}
 			ts.clearProviderCancel(providerCancel)
 		}()
 
@@ -310,9 +328,13 @@ func (p *Pipeline) CallLLM(
 	if backoffSecs <= 0 {
 		backoffSecs = 2
 	}
+	stepTimeout := p.Cfg.Agents.Defaults.GetStepTimeout()
 	for retry := 0; retry <= maxRetries; retry++ {
 		exec.response, err = callLLM(exec.callMessages, exec.providerToolDefs)
 		if err == nil {
+			if content := strings.TrimSpace(exec.response.Content); content != "" {
+				exec.lastLLMContent = content
+			}
 			break
 		}
 		if ts.hardAbortRequested() && errors.Is(err, context.Canceled) {
@@ -322,6 +344,10 @@ func (p *Pipeline) CallLLM(
 		}
 		if isConfiguredStreamingVisibleError(err) {
 			break
+		}
+		if ts.deadlineExceeded() {
+			exec.budgetExceeded = true
+			return ControlBreak, nil
 		}
 
 		if hasMediaRefs(exec.callMessages) && isVisionUnsupportedError(err) {
@@ -346,6 +372,10 @@ func (p *Pipeline) CallLLM(
 
 		if isTransientError && retry < maxRetries {
 			backoff := time.Duration(retry+1) * time.Duration(backoffSecs) * time.Second
+			if remaining, ok := ts.remainingBudget(); ok && remaining <= backoff+stepTimeout {
+				exec.budgetExceeded = true
+				return ControlBreak, nil
+			}
 			al.emitEvent(
 				runtimeevents.KindAgentLLMRetry,
 				ts.eventMeta("runTurn", "turn.llm.retry"),
@@ -494,6 +524,13 @@ func (p *Pipeline) CallLLM(
 			continue
 		}
 		break
+	}
+
+	// A per-request timeout after all retries is a governance stop, not an
+	// error: let the coordinator run the graceful final summary.
+	if err != nil && stepTimeout > 0 && errors.Is(err, context.DeadlineExceeded) && turnCtx.Err() == nil {
+		exec.stepTimedOut = true
+		return ControlBreak, nil
 	}
 
 	// v1.3.1: the light pool may be entirely unusable (provider down, auth

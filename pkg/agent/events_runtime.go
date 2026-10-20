@@ -57,7 +57,7 @@ func runtimeSeverityForAgentEvent(kind runtimeevents.Kind, payload any) runtimee
 		switch payload.Status {
 		case TurnEndStatusError:
 			return runtimeevents.SeverityError
-		case TurnEndStatusAborted:
+		case TurnEndStatusAborted, TurnEndStatusTimeout:
 			return runtimeevents.SeverityWarn
 		default:
 			return runtimeevents.SeverityInfo

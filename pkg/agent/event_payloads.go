@@ -12,6 +12,8 @@ const (
 	TurnEndStatusError TurnEndStatus = "error"
 	// TurnEndStatusAborted indicates the turn was hard-aborted and rolled back.
 	TurnEndStatusAborted TurnEndStatus = "aborted"
+	// TurnEndStatusTimeout indicates the turn hit its time/step budget.
+	TurnEndStatusTimeout TurnEndStatus = "timeout"
 )
 
 // TurnStartPayload describes the start of a turn.
@@ -53,6 +55,14 @@ type TurnEndPayload struct {
 	SkillContextSnapshots []SkillContextSnapshot
 	ToolKinds             []string
 	ToolExecutions        []ToolExecutionRecord
+
+	// Long-turn governance telemetry.
+	TimedOut      bool
+	ElapsedMS     int64
+	DeadlineSec   int
+	StopReason    string
+	LastTool      string
+	GraceCallUsed bool
 }
 
 // LLMRequestPayload describes an outbound LLM request.

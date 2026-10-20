@@ -184,8 +184,8 @@ func TestRoutingGuards_RepeatBreakerStopsIdenticalToolLoop(t *testing.T) {
 		Content:  "hi",
 	})
 
-	if !strings.Contains(resp, "repeating tool-call loop") {
-		t.Fatalf("response = %q, want repeat breaker message", resp)
+	if !strings.Contains(resp, "Turn stopped") || !strings.Contains(resp, "repeated") {
+		t.Fatalf("response = %q, want loop-detector stop message", resp)
 	}
 	if heavyCalls != 0 {
 		t.Fatalf("heavy calls = %d, want 0", heavyCalls)
@@ -358,42 +358,18 @@ func TestRoutingGuards_SteeringHardCap(t *testing.T) {
 	}
 }
 
-func TestRoutingGuards_ToolCallSignature(t *testing.T) {
-	a := providers.ToolCall{
-		ID:   "call_1",
-		Name: "shell",
-		Function: &providers.FunctionCall{
-			Name:      "shell",
-			Arguments: `{"cmd":"ls","dir":"/tmp"}`,
-		},
-		Arguments: map[string]any{"cmd": "ls", "dir": "/tmp"},
-	}
-	b := providers.ToolCall{
-		ID:   "call_999", // different ID must not change the signature
-		Name: "shell",
-		Function: &providers.FunctionCall{
-			Name:      "shell",
-			Arguments: `{"dir":"/tmp","cmd":"ls"}`, // key order differs
-		},
-		Arguments: map[string]any{"cmd": "ls", "dir": "/tmp"},
-	}
-	c := providers.ToolCall{
-		ID:   "call_1",
-		Name: "shell",
-		Function: &providers.FunctionCall{
-			Name:      "shell",
-			Arguments: `{"cmd":"ls -la","dir":"/tmp"}`,
-		},
-		Arguments: map[string]any{"cmd": "ls -la", "dir": "/tmp"},
-	}
+func TestLoopDetector_ToolSignature(t *testing.T) {
+	a := toolSignature("shell", map[string]any{"cmd": "ls", "dir": "/tmp"})
+	b := toolSignature("shell", map[string]any{"dir": "/tmp", "cmd": "ls"})
+	c := toolSignature("shell", map[string]any{"cmd": "ls -la", "dir": "/tmp"})
 
-	if toolCallSignature([]providers.ToolCall{a}) != toolCallSignature([]providers.ToolCall{b}) {
-		t.Fatal("identical calls with reordered args/other IDs must share a signature")
+	if a != b {
+		t.Fatal("identical calls with reordered args must share a signature")
 	}
-	if toolCallSignature([]providers.ToolCall{a}) == toolCallSignature([]providers.ToolCall{c}) {
+	if a == c {
 		t.Fatal("different args must not share a signature")
 	}
-	if toolCallSignature(nil) != "" || toolCallSignature([]providers.ToolCall{{}}) == "" {
-		t.Fatal("empty input must be empty signature; name-only call must hash")
+	if toolSignature("shell", nil) == "" {
+		t.Fatal("name-only call must still produce a signature")
 	}
 }

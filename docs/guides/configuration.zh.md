@@ -827,6 +827,41 @@ PicoClaw 按协议族路由提供商：
 }
 ```
 
+
+
+### 长回合治理
+
+除了 `max_tool_iterations`，还可以用墙钟时间给一轮对话封顶：
+
+```jsonc
+{
+  "agents": {
+    "defaults": {
+      "max_tool_iterations": 40,
+      "turn_time_budget_seconds": 1200,   // 0 = 关闭；1200 = 20 分钟
+      "step_timeout_secs": 120,           // 单次模型请求上限；0 = 关闭
+      "turn_grace_call": true,            // 允许一次无工具收尾总结
+      "loop_detection": {
+        "enabled": true,
+        "identical_error_limit": 3,       // 始终生效：同工具、同参数、同错误
+        "repeat_warn_thresholds": [3, 4], // 只提醒
+        "repeat_stop_threshold": 5,       // 完全相同的调用达到该次数即停
+        "no_progress_limit": 5,
+        "ping_pong_cycles": 4,
+        "critical_threshold": 20,
+        "ignore_tools": []
+      }
+    }
+  }
+}
+```
+
+- 预算到点后不再启动新工具；给 agent **一次**无工具收尾总结机会，失败也会发送确定性摘要。
+- `max_tool_iterations` 耗尽时走同一套软着陆，不再只回一句“提高配置”。
+- 连续 3 次相同 `(工具, 参数, 错误)` 必定停止本轮。
+- `turn_time_budget_seconds` 与 `step_timeout_secs` 默认 `0`（关闭），生产环境再显式开启。
+- `routing.repeat_breaker_iterations` 仍作为 `repeat_stop_threshold` 的兼容兜底。
+
 </details>
 
 <details>

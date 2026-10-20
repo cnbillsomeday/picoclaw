@@ -1104,6 +1104,40 @@ This keeps the runtime lightweight while making new OpenAI-compatible backends m
 
 </details>
 
+### Long-turn governance
+
+One turn can be bounded by wall-clock time instead of only by `max_tool_iterations`:
+
+```jsonc
+{
+  "agents": {
+    "defaults": {
+      "max_tool_iterations": 40,
+      "turn_time_budget_seconds": 1200,   // 0 = off; 1200 = 20 minutes
+      "step_timeout_secs": 120,           // single LLM request cap; 0 = off
+      "turn_grace_call": true,            // one tool-less final summary
+      "loop_detection": {
+        "enabled": true,
+        "identical_error_limit": 3,       // always on: same tool, args and error
+        "repeat_warn_thresholds": [3, 4], // reminders only
+        "repeat_stop_threshold": 5,       // hard stop for identical calls
+        "no_progress_limit": 5,
+        "ping_pong_cycles": 4,
+        "critical_threshold": 20,
+        "ignore_tools": []
+      }
+    }
+  }
+}
+```
+
+- When the budget expires, no new tools are started; the agent gets **one** final tool-less LLM call to summarize, then a deterministic summary is delivered even if that call fails.
+- `max_tool_iterations` exhaustion uses the same graceful path instead of a canned error.
+- The same `(tool, arguments, error)` three times in a row always stops the turn.
+- `turn_time_budget_seconds` and `step_timeout_secs` default to `0` (disabled); enable them in production.
+- `routing.repeat_breaker_iterations` is still honored as a fallback for `repeat_stop_threshold`.
+
+
 <details>
 <summary><b>Full config example</b></summary>
 
