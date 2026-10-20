@@ -12,11 +12,13 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/sipeed/picoclaw/pkg/a2a/client"
+	"github.com/sipeed/picoclaw/pkg/a2a/proactive"
 	"github.com/sipeed/picoclaw/pkg/a2a/wire"
 	"github.com/sipeed/picoclaw/pkg/bus"
 	"github.com/sipeed/picoclaw/pkg/channels"
@@ -41,6 +43,12 @@ const (
 
 	noReplySentinel = "@@NO_REPLY@@"
 
+	// Suppress patterns are user-supplied. Go's regexp is RE2 (linear time, no
+	// catastrophic backtracking); the caps bound memory and rule out absurd
+	// inputs rather than any backtracking blow-up.
+	maxSuppressPatterns   = 32
+	maxSuppressPatternLen = 512
+
 	// Inbound context metadata carried through to the final A2A outbound so
 	// owner notifications can correlate the reply with the originating message.
 	notifyConversationKey = "a2a_conversation_id"
@@ -58,10 +66,23 @@ const (
 		"写完即止：不要发确认句、不要复述、不要再次核对。"
 )
 
-// closureMarkers catch short compound closures such as
-// "（不回复，已闭环。）" and "收到，测试确认完毕。收工。" that the anchored
-// pattern alone would miss.
-var closureMarkers = []string{"不回复", "已闭环", "沉默即确认", "已回复", "测试确认", "收工", "不继续"}
+// closureOnlyPattern matches a short message made up exclusively of
+// acknowledgements, closures and connectors, such as "（不回复，已闭环。）" or
+// "收到，测试确认完毕。收工。" — the compound forms the anchored ack pattern
+// alone would miss.
+//
+// It is anchored on purpose: the previous substring rule suppressed genuine
+// replies that merely mentioned a closure ("好的，收工前再确认下").
+var closureOnlyPattern = func() *regexp.Regexp {
+	// Connectors/punctuation allowed between closure tokens, including both
+	// ASCII and full-width parentheses.
+	const punct = `（(\[【）)】\]\s,，.。!！?？:：;；、~～\-—…/`
+	const tokens = `收到|已收到|好的|好|嗯|ok|明白|了解|已闭环|不回复|不回|沉默即确认|谢谢|多谢|` +
+		`再见|晚安|已回复|已回复一次|测试确认完毕|测试确认|确认完毕|简短确认|简短|确认|` +
+		`没问题|可以|知道了|不继续|收工`
+	return regexp.MustCompile(
+		`(?i)^[` + punct + `]*(?:(?:` + tokens + `)[` + punct + `]*)+$`)
+}()
 
 // Channel is the picoclaw A2A client channel.
 type Channel struct {
@@ -111,6 +132,11 @@ type Channel struct {
 	peers   map[string]wire.Agent
 	peersAt time.Time
 
+	// allowPeers holds the normalized allow_from entries. A2A matches peer
+	// slugs case-insensitively, which the generic BaseChannel allow-list does
+	// not, so the channel keeps its own copy.
+	allowPeers []string
+
 	drySeenMu sync.Mutex
 	drySeen   map[string]struct{}
 }
@@ -125,10 +151,30 @@ func NewA2AChannel(bc *config.Channel, settings *config.A2ASettings, b *bus.Mess
 	if len(allow) == 0 {
 		return nil, errors.New("a2a: allow_from must list the peer agent slugs (all 8 platform agents); refusing to start open")
 	}
+	allowPeers := make([]string, 0, len(allow))
+	for _, raw := range allow {
+		peer := normalizePeer(raw)
+		if peer == "" {
+			continue
+		}
+		if peer == "*" && !wildcardAllowFromAllowed() {
+			return nil, errors.New("a2a: allow_from \"*\" accepts every agent on the platform; " +
+				"list the peer slugs explicitly, or set A2A_ALLOW_WILDCARD=1 to accept that risk")
+		}
+		allowPeers = append(allowPeers, peer)
+	}
+	if len(allowPeers) == 0 {
+		return nil, errors.New("a2a: allow_from contains no usable peer slugs")
+	}
 
 	baseURL := strings.TrimSpace(settings.BaseURL)
 	if baseURL == "" {
 		return nil, errors.New("a2a: base_url is required")
+	}
+	// Refuse plaintext transport unless it is loopback or explicitly allowed:
+	// the bearer token is attached to every request.
+	if err := wire.ValidateBaseURL(baseURL); err != nil {
+		return nil, fmt.Errorf("a2a: %w", err)
 	}
 	agentSlug := strings.TrimSpace(settings.AgentSlug)
 	if agentSlug == "" {
@@ -199,10 +245,18 @@ func NewA2AChannel(bc *config.Channel, settings *config.A2ASettings, b *bus.Mess
 		return nil, fmt.Errorf("a2a: compile ack filter: %w", err)
 	}
 	customFilters := make([]*regexp.Regexp, 0, len(settings.SuppressPatterns))
+	if len(settings.SuppressPatterns) > maxSuppressPatterns {
+		return nil, fmt.Errorf("a2a: at most %d suppress_patterns are supported, got %d",
+			maxSuppressPatterns, len(settings.SuppressPatterns))
+	}
 	for _, pattern := range settings.SuppressPatterns {
 		pattern = strings.TrimSpace(pattern)
 		if pattern == "" {
 			continue
+		}
+		if len(pattern) > maxSuppressPatternLen {
+			return nil, fmt.Errorf("a2a: suppress pattern %q is longer than %d characters",
+				previewText(pattern, 40), maxSuppressPatternLen)
 		}
 		compiled, err := regexp.Compile(pattern)
 		if err != nil {
@@ -261,6 +315,7 @@ func NewA2AChannel(bc *config.Channel, settings *config.A2ASettings, b *bus.Mess
 		notifyMode:         notifyMode,
 		notifyMaxLen:       settings.GetNotifyMaxChars(),
 		peers:              map[string]wire.Agent{},
+		allowPeers:         allowPeers,
 		drySeen:            map[string]struct{}{},
 	}
 	// Never trust a persisted 304 across restarts (nor a dry-run ETag when
@@ -283,6 +338,9 @@ func (c *Channel) Start(ctx context.Context) error {
 	}
 	c.ctx, c.cancel = context.WithCancel(ctx)
 	c.SetRunning(true)
+	// Publish this instance so the a2a_send tool reuses the same outbound
+	// gates (rate limit, dry-run, signing, clock check).
+	proactive.Register(c.Name(), c)
 	c.wg.Add(1)
 	go c.pollLoop()
 	logger.InfoCF("a2a", "channel started", map[string]any{
@@ -312,6 +370,7 @@ func (c *Channel) Stop(ctx context.Context) error {
 	case <-ctx.Done():
 	}
 	c.SetRunning(false)
+	proactive.Unregister(c.Name(), c)
 	if err := c.state.Save(); err != nil {
 		logger.WarnCF("a2a", "failed to save channel state", map[string]any{"error": err.Error()})
 	}
@@ -321,6 +380,48 @@ func (c *Channel) Stop(ctx context.Context) error {
 
 // Send delivers one outbound message, splitting it to the platform limit.
 func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) ([]string, error) {
+	return c.sendOutbound(ctx, msg, sendOptions{})
+}
+
+// SendProactive sends an agent-initiated message (a2a_send tool). It runs
+// through the same outbound path as a reply: the per-peer rate limit, dry-run,
+// signing and the clock check all apply.
+func (c *Channel) SendProactive(ctx context.Context, peer, text, sessionKey string) ([]string, error) {
+	peer = normalizePeer(peer)
+	if peer == "" {
+		return nil, fmt.Errorf("%w: empty peer chat id", channels.ErrSendFailed)
+	}
+	if !c.isPeerAllowed(peer) {
+		return nil, fmt.Errorf("%w: recipient %q is not in allow_from", channels.ErrSendFailed, peer)
+	}
+	msg := bus.OutboundMessage{
+		Channel:    c.Name(),
+		ChatID:     peer,
+		Context:    bus.NewOutboundContext(c.Name(), peer, ""),
+		SessionKey: sessionKey,
+		Content:    text,
+	}
+	ids, err := c.sendOutbound(ctx, msg, sendOptions{proactive: true, skipExplicitConsume: true})
+	if err == nil && len(ids) > 0 {
+		// The agent already said what it wanted to say: suppress the automatic
+		// final reply for this session/peer once.
+		wire.MarkExplicitSend(sessionKey, peer)
+	}
+	return ids, err
+}
+
+// sendOptions tunes the shared outbound path.
+type sendOptions struct {
+	// proactive marks a message the agent/operator initiated rather than an
+	// automatic reply, so content filters and the explicit-send marker do not
+	// apply. Rate limiting and the rest of the gates still do.
+	proactive bool
+	// skipExplicitConsume keeps SendProactive from consuming the marker it is
+	// about to set.
+	skipExplicitConsume bool
+}
+
+func (c *Channel) sendOutbound(ctx context.Context, msg bus.OutboundMessage, opts sendOptions) ([]string, error) {
 	if !c.IsRunning() {
 		return nil, channels.ErrNotRunning
 	}
@@ -330,44 +431,48 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) ([]string, 
 	}
 	content := msg.Content
 	trimmed := strings.TrimSpace(content)
-	if reason := suppressedOutboundReason(msg); reason != "" {
-		logger.DebugCF("a2a", "reply_suppressed", map[string]any{
-			"reason": reason,
-			"agent":  c.agentSlug,
-			"peer":   peer,
-		})
-		return nil, nil
+	if !opts.proactive {
+		if reason := suppressedOutboundReason(msg); reason != "" {
+			logger.DebugCF("a2a", "reply_suppressed", map[string]any{
+				"reason": reason,
+				"agent":  c.agentSlug,
+				"peer":   peer,
+			})
+			return nil, nil
+		}
 	}
 	if trimmed == "" {
 		return nil, nil
 	}
-	if trimmed == noReplySentinel {
-		wire.ConsumeExplicitSend(msg.SessionKey, peer)
-		logger.DebugCF("a2a", "reply_suppressed", map[string]any{
-			"reason": "no_reply_sentinel",
-			"agent":  c.agentSlug,
-			"peer":   peer,
-		})
-		return nil, nil
-	}
-	if c.isAckOrClosure(trimmed) {
-		wire.ConsumeExplicitSend(msg.SessionKey, peer)
-		logger.InfoCF("a2a", "reply_suppressed", map[string]any{
-			"reason": "ack_filter",
-			"agent":  c.agentSlug,
-			"peer":   peer,
-			"text":   previewText(trimmed, 40),
-		})
-		return nil, nil
-	}
-	if wire.ConsumeExplicitSend(msg.SessionKey, peer) {
-		logger.InfoCF("a2a", "reply_suppressed", map[string]any{
-			"reason": "explicit_send",
-			"agent":  c.agentSlug,
-			"peer":   peer,
-			"text":   previewText(trimmed, 40),
-		})
-		return nil, nil
+	if !opts.proactive {
+		if trimmed == noReplySentinel {
+			wire.ConsumeExplicitSend(msg.SessionKey, peer)
+			logger.DebugCF("a2a", "reply_suppressed", map[string]any{
+				"reason": "no_reply_sentinel",
+				"agent":  c.agentSlug,
+				"peer":   peer,
+			})
+			return nil, nil
+		}
+		if c.isAckOrClosure(trimmed) {
+			wire.ConsumeExplicitSend(msg.SessionKey, peer)
+			logger.InfoCF("a2a", "reply_suppressed", map[string]any{
+				"reason": "ack_filter",
+				"agent":  c.agentSlug,
+				"peer":   peer,
+				"text":   previewText(trimmed, 40),
+			})
+			return nil, nil
+		}
+		if !opts.skipExplicitConsume && wire.ConsumeExplicitSend(msg.SessionKey, peer) {
+			logger.InfoCF("a2a", "reply_suppressed", map[string]any{
+				"reason": "explicit_send",
+				"agent":  c.agentSlug,
+				"peer":   peer,
+				"text":   previewText(trimmed, 40),
+			})
+			return nil, nil
+		}
 	}
 	if c.dryRun {
 		logger.InfoCF("a2a", "outbound suppressed (dry_run)", map[string]any{
@@ -387,6 +492,10 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) ([]string, 
 			"cap":    c.maxReplies,
 			"text":   previewText(trimmed, 40),
 		})
+		if opts.proactive {
+			return nil, fmt.Errorf("%w: peer %s hit the %d-per-%s outbound limit",
+				channels.ErrSendFailed, peer, c.maxReplies, c.replyWindow)
+		}
 		return nil, nil
 	}
 	if c.signer == nil {
@@ -396,8 +505,9 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) ([]string, 
 		return nil, fmt.Errorf("%w: %v", channels.ErrSendFailed, err)
 	}
 
-	chunks := splitRunes(content, c.maxChars)
+	chunks := wire.SplitMessage(content, c.maxChars)
 	ids := make([]string, 0, len(chunks))
+	delivered := 0
 	for i, chunk := range chunks {
 		result, err := c.client.SendSigned(
 			ctx, c.agentSlug, peer, chunk, c.signer,
@@ -405,7 +515,11 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) ([]string, 
 		)
 		if err != nil {
 			if errors.Is(err, client.ErrReplayedNonce) {
-				logger.WarnCF("a2a", "outbound possibly delivered before retry (nonce replay)", map[string]any{
+				// The earlier attempt landed; the platform just refuses to
+				// consume the nonce twice. Count it as delivered so the rate
+				// limiter and the owner notification stay truthful.
+				delivered++
+				logger.WarnCF("a2a", "outbound already delivered (nonce replay)", map[string]any{
 					"agent": c.agentSlug,
 					"peer":  peer,
 					"chunk": i + 1,
@@ -421,6 +535,7 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) ([]string, 
 			return ids, fmt.Errorf("%w: %v", channels.ErrTemporary, err)
 		}
 		ids = append(ids, result.MessageID)
+		delivered++
 		logger.InfoCF("a2a", "outbound sent", map[string]any{
 			"agent":        c.agentSlug,
 			"peer":         peer,
@@ -432,16 +547,32 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) ([]string, 
 			"sig_state":    result.SigState,
 		})
 	}
-	if len(ids) > 0 && c.maxReplies > 0 && c.replyWindow > 0 {
+	if delivered > 0 && c.maxReplies > 0 && c.replyWindow > 0 {
 		c.state.RecordOutbound(peer, c.currentTime(), c.replyWindow)
 		if err := c.state.Save(); err != nil {
 			logger.WarnCF("a2a", "failed to save rate-limit state", map[string]any{"error": err.Error()})
 		}
 	}
-	if len(ids) > 0 {
+	if delivered > 0 && !opts.proactive {
 		c.notifyReplySent(msg)
 	}
 	return ids, nil
+}
+
+// isPeerAllowed reports whether a peer slug is in allow_from. Matching is
+// case-insensitive so "Alice" and "alice" cannot silently become strangers;
+// the wire value itself is left untouched (the platform may be case-sensitive).
+func (c *Channel) isPeerAllowed(peer string) bool {
+	peer = normalizePeer(peer)
+	if peer == "" {
+		return false
+	}
+	for _, allowed := range c.allowPeers {
+		if allowed == "*" || strings.EqualFold(allowed, peer) {
+			return true
+		}
+	}
+	return false
 }
 
 func (c *Channel) currentTime() time.Time {
@@ -460,14 +591,11 @@ func (c *Channel) isAckOrClosure(text string) bool {
 			return true
 		}
 	}
-	// Short compound closure messages are the ones that caused the incident;
-	// treat any short message carrying a closure marker as an acknowledgement.
-	if len([]rune(text)) <= 40 {
-		for _, marker := range closureMarkers {
-			if strings.Contains(text, marker) {
-				return true
-			}
-		}
+	// Short compound closure messages are the ones that caused the incident.
+	// Only a message that is *entirely* closure tokens qualifies; one stray
+	// word makes it a real reply and it goes out.
+	if len([]rune(text)) <= 40 && closureOnlyPattern.MatchString(text) {
+		return true
 	}
 	return false
 }
@@ -543,6 +671,16 @@ func (c *Channel) ensureClock(ctx context.Context, strict bool) error {
 	return nil
 }
 
+// wildcardAllowFromAllowed is the explicit opt-in for allow_from: ["*"].
+func wildcardAllowFromAllowed() bool {
+	v := strings.TrimSpace(os.Getenv("A2A_ALLOW_WILDCARD"))
+	if v == "" {
+		return false
+	}
+	ok, err := strconv.ParseBool(v)
+	return err == nil && ok
+}
+
 func homeDir() string {
 	if home, err := os.UserHomeDir(); err == nil && home != "" {
 		return home
@@ -575,22 +713,9 @@ func normalizePeer(raw string) string {
 }
 
 func splitRunes(content string, max int) []string {
-	if max <= 0 {
-		max = wire.MaxMessageRunes
-	}
-	runes := []rune(content)
-	if len(runes) <= max {
-		return []string{content}
-	}
-	out := make([]string, 0, (len(runes)+max-1)/max)
-	for start := 0; start < len(runes); start += max {
-		end := start + max
-		if end > len(runes) {
-			end = len(runes)
-		}
-		out = append(out, string(runes[start:end]))
-	}
-	return out
+	// Single implementation: wire.SplitMessage is what the proactive tool uses
+	// too, so the channel and the tool can never disagree on chunking.
+	return wire.SplitMessage(content, max)
 }
 
 func absDuration(d time.Duration) time.Duration {

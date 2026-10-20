@@ -3,6 +3,7 @@
 package wire
 
 import (
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -11,6 +12,11 @@ import (
 // explicitSendTTL bounds how long an explicit send suppresses the automatic
 // final reply for the same session/peer.
 const explicitSendTTL = 5 * time.Minute
+
+// maxExplicitSends bounds the process-wide map so a busy agent cannot grow it
+// without limit. Keys are session-scoped (session keys embed agent and
+// channel), so one conversation never suppresses another conversation's reply.
+const maxExplicitSends = 1024
 
 type explicitSendKey struct {
 	session string
@@ -21,6 +27,31 @@ var explicitSends = struct {
 	sync.Mutex
 	m map[explicitSendKey]time.Time
 }{m: map[explicitSendKey]time.Time{}}
+
+// pruneExplicitLocked drops expired markers and, if the map is still above the
+// cap, the oldest ones. Callers must hold the lock.
+func pruneExplicitLocked(now time.Time) {
+	for key, at := range explicitSends.m {
+		if now.Sub(at) > explicitSendTTL {
+			delete(explicitSends.m, key)
+		}
+	}
+	if len(explicitSends.m) <= maxExplicitSends {
+		return
+	}
+	type entry struct {
+		key explicitSendKey
+		at  time.Time
+	}
+	entries := make([]entry, 0, len(explicitSends.m))
+	for key, at := range explicitSends.m {
+		entries = append(entries, entry{key: key, at: at})
+	}
+	sort.Slice(entries, func(i, j int) bool { return entries[i].at.Before(entries[j].at) })
+	for _, e := range entries[:len(entries)-maxExplicitSends] {
+		delete(explicitSends.m, e.key)
+	}
+}
 
 // MarkExplicitSend records that the agent already sent a message to peer via
 // the explicit send path in this session. The next automatic outbound to the
@@ -34,11 +65,7 @@ func MarkExplicitSend(sessionKey, peer string) {
 	now := time.Now()
 	explicitSends.Lock()
 	defer explicitSends.Unlock()
-	for key, at := range explicitSends.m {
-		if now.Sub(at) > explicitSendTTL {
-			delete(explicitSends.m, key)
-		}
-	}
+	pruneExplicitLocked(now)
 	explicitSends.m[explicitSendKey{session: sessionKey, peer: peer}] = now
 }
 
@@ -51,6 +78,7 @@ func ClearExplicitSendsForSession(sessionKey string) {
 	}
 	explicitSends.Lock()
 	defer explicitSends.Unlock()
+	pruneExplicitLocked(time.Now())
 	for key := range explicitSends.m {
 		if key.session == sessionKey {
 			delete(explicitSends.m, key)
@@ -67,6 +95,7 @@ func ClearExplicitSendsForPeer(peer string) {
 	}
 	explicitSends.Lock()
 	defer explicitSends.Unlock()
+	pruneExplicitLocked(time.Now())
 	for key := range explicitSends.m {
 		if key.peer == peer {
 			delete(explicitSends.m, key)
@@ -85,11 +114,7 @@ func ConsumeExplicitSend(sessionKey, peer string) bool {
 	now := time.Now()
 	explicitSends.Lock()
 	defer explicitSends.Unlock()
-	for key, at := range explicitSends.m {
-		if now.Sub(at) > explicitSendTTL {
-			delete(explicitSends.m, key)
-		}
-	}
+	pruneExplicitLocked(now)
 	key := explicitSendKey{session: sessionKey, peer: peer}
 	if _, ok := explicitSends.m[key]; !ok {
 		return false

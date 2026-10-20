@@ -107,21 +107,45 @@ func decodeBase64Any(s string) ([]byte, error) {
 	return base64.StdEncoding.DecodeString(s)
 }
 
+// NewNonce returns a fresh random hex nonce.
+func NewNonce() (string, error) {
+	nonceBytes := make([]byte, NonceBytes)
+	if _, err := rand.Read(nonceBytes); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(nonceBytes), nil
+}
+
 // Sign builds the wire fields for a message using the current clock and a
 // fresh random nonce.
 func (s *Signer) Sign(from, to, content string) (ts int64, nonce, sig string, err error) {
-	nonceBytes := make([]byte, NonceBytes)
-	if _, err = rand.Read(nonceBytes); err != nil {
+	nonce, err = NewNonce()
+	if err != nil {
 		return 0, "", "", err
 	}
-	nonce = hex.EncodeToString(nonceBytes)
-	ts = time.Now().Unix()
-	sig = s.SignAt(from, to, ts, nonce, content)
-	return ts, nonce, sig, nil
+	ts, sig, err = s.SignWithNonce(from, to, content, nonce)
+	return ts, nonce, sig, err
 }
 
-// SignAt signs with caller-provided timestamp and nonce (used by tests and by
-// retries, which must reuse the exact same signed bytes).
+// SignWithNonce signs content at the current clock with a caller-provided
+// nonce.
+//
+// Retries must keep the nonce (that is what keeps a resend idempotent: the
+// platform consumes nonces and answers 403 "replayed nonce" for the copy that
+// already landed) but they must refresh the timestamp. Reusing one signed
+// payload across a retry chain with backoff drifts the timestamp past the
+// server's +/-300s window, after which every attempt is rejected as stale.
+func (s *Signer) SignWithNonce(from, to, content, nonce string) (int64, string, error) {
+	nonce = strings.TrimSpace(nonce)
+	if nonce == "" {
+		return 0, "", errors.New("nonce is required")
+	}
+	ts := time.Now().Unix()
+	return ts, s.SignAt(from, to, ts, nonce, content), nil
+}
+
+// SignAt signs with caller-provided timestamp and nonce (used by tests and
+// when the exact signed bytes must be reproduced).
 func (s *Signer) SignAt(from, to string, ts int64, nonce, content string) string {
 	payload := SignPayload(from, to, ts, nonce, content)
 	return hex.EncodeToString(ed25519.Sign(s.key, []byte(payload)))

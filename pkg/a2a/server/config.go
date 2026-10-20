@@ -304,6 +304,22 @@ func randToken() string {
 
 func (c *Config) Agent(slug string) *AgentConfig { return c.BySlug[slug] }
 
+// ResolveAgent resolves a slug case-insensitively and returns the canonical
+// allowlist entry. Exact matches win; the fold is only a compatibility net so
+// "Alice" and "alice" cannot become two different (one unreachable) peers.
+func (c *Config) ResolveAgent(name string) *AgentConfig {
+	name = strings.TrimSpace(name)
+	if a := c.BySlug[name]; a != nil {
+		return a
+	}
+	for _, a := range c.Agents {
+		if strings.EqualFold(a.Slug, name) {
+			return a
+		}
+	}
+	return nil
+}
+
 func (c *Config) Auth(token string) (string, bool) {
 	if token == "" {
 		return "", false

@@ -19,6 +19,16 @@ const (
 	maxSeenPerConv    = 200
 	maxTrackedConvs   = 64
 	stateBackupSuffix = ".corrupt."
+
+	// Dead-lettered inbound entries are kept so a restart cannot replay them,
+	// but they are not useful forever: without a sweep the map grows for the
+	// lifetime of the install.
+	maxInboundPerConv = 200
+	deadInboundTTL    = 7 * 24 * time.Hour
+	// Backups of corrupt/foreign state files carry message previews and are
+	// only useful for a short post-mortem.
+	maxStateBackups = 2
+	backupTTL       = 7 * 24 * time.Hour
 )
 
 type stateData struct {
@@ -58,6 +68,7 @@ type channelState struct {
 }
 
 func loadChannelState(path, agent string) (*channelState, error) {
+	pruneStateBackups(path)
 	st := &channelState{path: path, data: stateData{Version: stateVersion, Agent: agent}}
 	raw, err := os.ReadFile(path)
 	if err != nil {
@@ -97,6 +108,7 @@ func loadChannelState(path, agent string) (*channelState, error) {
 	}
 	st.data = data
 	st.data.Agent = agent
+	st.gcInbound(time.Now())
 	return st, nil
 }
 
@@ -231,6 +243,28 @@ func (s *channelState) pruneNotifiedLocked() {
 	for _, k := range keys[:len(keys)-maxTrackedConvs] {
 		delete(s.data.Notified, k)
 	}
+}
+
+// UnmarkNotified rolls back an at-most-once claim when publishing failed, so a
+// later attempt can still alert the owner.
+func (s *channelState) UnmarkNotified(convID, msgID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	ids := s.data.Notified[convID]
+	if len(ids) == 0 {
+		return
+	}
+	kept := ids[:0]
+	for _, id := range ids {
+		if id != msgID {
+			kept = append(kept, id)
+		}
+	}
+	if len(kept) == 0 {
+		delete(s.data.Notified, convID)
+		return
+	}
+	s.data.Notified[convID] = kept
 }
 
 // AllowOutbound reports whether the peer has room in the sliding window.
@@ -433,6 +467,95 @@ func (s *channelState) ExpirePendingInbound(convID string, now time.Time, timeou
 	return expired
 }
 
+// gcInbound drops dead-lettered entries past their TTL and caps how many
+// entries one conversation may accumulate. Pending/retryable entries are never
+// dropped: they are the delivery state.
+func (s *channelState) gcInbound(now time.Time) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.gcInboundLocked(now)
+}
+
+func (s *channelState) gcInboundLocked(now time.Time) {
+	if len(s.data.Inbound) == 0 {
+		return
+	}
+	ttlCutoff := now.Add(-deadInboundTTL).Unix()
+	for convID, convs := range s.data.Inbound {
+		if len(convs) == 0 {
+			delete(s.data.Inbound, convID)
+			continue
+		}
+		for id, entry := range convs {
+			if entry == nil {
+				delete(convs, id)
+				continue
+			}
+			if entry.Status != "dead" {
+				continue
+			}
+			if entry.LastAttempt > 0 && entry.LastAttempt < ttlCutoff {
+				delete(convs, id)
+			}
+		}
+		if len(convs) > maxInboundPerConv {
+			deadIDs := make([]string, 0, len(convs))
+			for id, entry := range convs {
+				if entry != nil && entry.Status == "dead" {
+					deadIDs = append(deadIDs, id)
+				}
+			}
+			sort.Slice(deadIDs, func(i, j int) bool {
+				return convs[deadIDs[i]].LastAttempt < convs[deadIDs[j]].LastAttempt
+			})
+			drop := len(convs) - maxInboundPerConv
+			for _, id := range deadIDs {
+				if drop <= 0 {
+					break
+				}
+				delete(convs, id)
+				drop--
+			}
+		}
+		if len(convs) == 0 {
+			delete(s.data.Inbound, convID)
+		}
+	}
+}
+
+// pruneStateBackups keeps only the newest few corrupt/foreign state backups and
+// deletes old ones, because they contain message previews.
+func pruneStateBackups(path string) {
+	if strings.TrimSpace(path) == "" {
+		return
+	}
+	cutoff := time.Now().Add(-backupTTL)
+	for _, pattern := range []string{path + stateBackupSuffix + "*", path + ".agent-mismatch.*"} {
+		matches, err := filepath.Glob(pattern)
+		if err != nil || len(matches) == 0 {
+			continue
+		}
+		type backup struct {
+			name string
+			mod  time.Time
+		}
+		list := make([]backup, 0, len(matches))
+		for _, name := range matches {
+			st, statErr := os.Stat(name)
+			if statErr != nil {
+				continue
+			}
+			list = append(list, backup{name: name, mod: st.ModTime()})
+		}
+		sort.Slice(list, func(i, j int) bool { return list[i].mod.After(list[j].mod) })
+		for i, b := range list {
+			if i >= maxStateBackups || b.mod.Before(cutoff) {
+				_ = os.Remove(b.name)
+			}
+		}
+	}
+}
+
 func truncateRunes(text string, max int) string {
 	runes := []rune(text)
 	if len(runes) <= max {
@@ -481,6 +604,7 @@ func (s *channelState) Save() error {
 	s.saveMu.Lock()
 	defer s.saveMu.Unlock()
 	s.mu.Lock()
+	s.gcInboundLocked(time.Now())
 	payload, err := json.MarshalIndent(s.data, "", "  ")
 	s.mu.Unlock()
 	if err != nil {

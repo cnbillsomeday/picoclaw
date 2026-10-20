@@ -284,6 +284,8 @@ func buildMux(s *Server) *http.ServeMux {
 	mux.HandleFunc("GET /api/v1/a2a/conversations/{id}", s.auth(s.handleConversation))
 	mux.HandleFunc("GET /a2a/conversations/{id}/messages", s.auth(s.handleConversation))
 	mux.HandleFunc("GET /api/v1/a2a/conversations/{id}/messages", s.auth(s.handleConversation))
+	mux.HandleFunc("POST /a2a/conversations/{id}/read", s.auth(s.handleMarkRead))
+	mux.HandleFunc("POST /api/v1/a2a/conversations/{id}/read", s.auth(s.handleMarkRead))
 
 	mux.HandleFunc("POST /a2a/{name}", s.auth(s.handleSend))
 	mux.HandleFunc("POST /api/v1/a2a/{name}", s.auth(s.handleSend))

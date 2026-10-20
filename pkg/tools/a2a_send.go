@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/sipeed/picoclaw/pkg/a2a/client"
+	"github.com/sipeed/picoclaw/pkg/a2a/proactive"
 	"github.com/sipeed/picoclaw/pkg/a2a/wire"
 	"github.com/sipeed/picoclaw/pkg/config"
 )
@@ -65,7 +66,7 @@ func (t *A2ASendTool) Execute(ctx context.Context, args map[string]any) *ToolRes
 		return ErrorResult("a2a_send: 'text' is required")
 	}
 
-	bc, settings, err := findEnabledA2AChannel(t.cfg)
+	channelName, bc, settings, err := findEnabledA2AChannel(t.cfg)
 	if err != nil {
 		return ErrorResult("a2a_send: " + err.Error())
 	}
@@ -78,6 +79,34 @@ func (t *A2ASendTool) Execute(ctx context.Context, args map[string]any) *ToolRes
 	if !settings.SignEnabled() {
 		return ErrorResult("a2a_send: signing is disabled; proactive sends require signatures")
 	}
+	baseURL := strings.TrimSpace(settings.BaseURL)
+	if baseURL == "" {
+		return ErrorResult("a2a_send: base_url is required")
+	}
+	if err := wire.ValidateBaseURL(baseURL); err != nil {
+		return ErrorResult("a2a_send: " + err.Error())
+	}
+
+	// Preferred path: hand the message to the live channel so the per-peer
+	// rate limit, dry-run, signing and clock gates are exactly the ones
+	// automatic replies obey. Sending straight from the tool let an agent
+	// flood a peer while its replies were capped.
+	sessionKey := ToolSessionKey(ctx)
+	if sender, ok := lookupProactiveSender(channelName); ok {
+		ids, err := sender.SendProactive(ctx, to, text, sessionKey)
+		if err != nil {
+			return ErrorResult("a2a_send: " + err.Error())
+		}
+		if len(ids) == 0 {
+			return SilentResult(fmt.Sprintf(
+				"a2a_send: message to %s was suppressed (rate limit, dry_run or empty content)", to))
+		}
+		return SilentResult(fmt.Sprintf(
+			"a2a_send: sent %d message(s) to %s (first id=%s)", len(ids), to, ids[0]))
+	}
+	// Fallback: no running channel in this process (unit tests, or a tool
+	// constructed before the channel started). The clock check is kept; the
+	// per-peer rate limit cannot be shared on this path and is skipped.
 
 	keyFile := strings.TrimSpace(settings.KeyFile)
 	if keyFile == "" {
@@ -91,10 +120,6 @@ func (t *A2ASendTool) Execute(ctx context.Context, args map[string]any) *ToolRes
 	if token == "" {
 		return ErrorResult("a2a_send: token is required")
 	}
-	baseURL := strings.TrimSpace(settings.BaseURL)
-	if baseURL == "" {
-		return ErrorResult("a2a_send: base_url is required")
-	}
 	timeout := time.Duration(settings.HTTPTimeoutSec) * time.Second
 	if timeout <= 0 {
 		timeout = 20 * time.Second
@@ -105,6 +130,9 @@ func (t *A2ASendTool) Execute(ctx context.Context, args map[string]any) *ToolRes
 	}
 
 	api := client.New(baseURL, token, timeout)
+	if err := checkClockSkewBestEffort(ctx, api, maxClockSkewForSend); err != nil {
+		return ErrorResult("a2a_send: " + err.Error())
+	}
 	chunks := wire.SplitMessage(text, maxChars)
 	ids := make([]string, 0, len(chunks))
 	for i, chunk := range chunks {
@@ -129,31 +157,62 @@ func (t *A2ASendTool) Execute(ctx context.Context, args map[string]any) *ToolRes
 	))
 }
 
-func findEnabledA2AChannel(cfg *config.Config) (*config.Channel, *config.A2ASettings, error) {
+func findEnabledA2AChannel(cfg *config.Config) (string, *config.Channel, *config.A2ASettings, error) {
 	if cfg == nil {
-		return nil, nil, errors.New("config is unavailable")
+		return "", nil, nil, errors.New("config is unavailable")
 	}
-	for _, bc := range cfg.Channels {
+	for name, bc := range cfg.Channels {
 		if bc == nil || !bc.Enabled || bc.Type != config.ChannelA2A {
 			continue
 		}
 		decoded, err := bc.GetDecoded()
 		if err != nil {
-			return nil, nil, fmt.Errorf("decode a2a settings: %w", err)
+			return "", nil, nil, fmt.Errorf("decode a2a settings: %w", err)
 		}
 		settings, ok := decoded.(*config.A2ASettings)
 		if !ok {
-			return nil, nil, fmt.Errorf("invalid a2a settings type %T", decoded)
+			return "", nil, nil, fmt.Errorf("invalid a2a settings type %T", decoded)
 		}
-		return bc, settings, nil
+		return name, bc, settings, nil
 	}
-	return nil, nil, errors.New("no enabled a2a channel configured")
+	return "", nil, nil, errors.New("no enabled a2a channel configured")
+}
+
+// lookupProactiveSender finds the live channel that owns the configured A2A
+// channel name, falling back to the only registered sender.
+func lookupProactiveSender(channelName string) (proactive.Sender, bool) {
+	if sender, ok := proactive.Lookup(channelName); ok {
+		return sender, true
+	}
+	return proactive.LookupAny()
+}
+
+// maxClockSkewForSend mirrors the channel's send-time threshold.
+const maxClockSkewForSend = 240 * time.Second
+
+// checkClockSkewBestEffort rejects a clearly skewed clock before signing.
+// A failed health request is advisory only and never blocks the send.
+func checkClockSkewBestEffort(ctx context.Context, api *client.Client, limit time.Duration) error {
+	serverTime, err := api.Health(ctx)
+	if err != nil {
+		return nil
+	}
+	skew := time.Until(serverTime)
+	if skew < 0 {
+		skew = -skew
+	}
+	if skew > limit {
+		return fmt.Errorf("clock skew %s exceeds %s; fix NTP before sending signed messages",
+			skew.Round(time.Second), limit)
+	}
+	return nil
 }
 
 func a2aAllowed(bc *config.Channel, slug string) bool {
 	slug = wire.NormalizeAgentSlug(slug)
 	for _, allowed := range bc.AllowFrom {
-		if allowed == "*" || wire.NormalizeAgentSlug(allowed) == slug {
+		allowed = wire.NormalizeAgentSlug(allowed)
+		if allowed == "*" || strings.EqualFold(allowed, slug) {
 			return true
 		}
 	}

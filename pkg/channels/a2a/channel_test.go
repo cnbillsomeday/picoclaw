@@ -26,6 +26,9 @@ type testPlatform struct {
 	base   string
 	tokens map[string]string
 	signer map[string]*wire.Signer
+	// seeds keeps the one-time redeemed seed in memory. Redeem is deliberately
+	// single-use on the server, so tests must not ask for it twice.
+	seeds map[string][]byte
 }
 
 func startTestPlatform(t *testing.T, agents ...string) *testPlatform {
@@ -62,18 +65,20 @@ func startTestPlatformWithMode(t *testing.T, signMode string, agents ...string) 
 	base := "http://" + inst.Addr()
 
 	signers := map[string]*wire.Signer{}
+	seeds := map[string][]byte{}
 	for slug, token := range initRes.Tokens {
 		seed, err := redeemSeed(base, token)
 		if err != nil {
 			t.Fatalf("redeem %s: %v", slug, err)
 		}
+		seeds[slug] = seed
 		signer, err := wire.NewSigner(seed)
 		if err != nil {
 			t.Fatalf("signer %s: %v", slug, err)
 		}
 		signers[slug] = signer
 	}
-	return &testPlatform{inst: inst, base: base, tokens: initRes.Tokens, signer: signers}
+	return &testPlatform{inst: inst, base: base, tokens: initRes.Tokens, signer: signers, seeds: seeds}
 }
 
 func redeemSeed(base, token string) ([]byte, error) {
@@ -111,11 +116,9 @@ func newTestChannel(
 ) (*Channel, *bus.MessageBus) {
 	t.Helper()
 	seedFile := filepath.Join(t.TempDir(), "ed25519.seed")
-	// Write the raw seed again by redeeming (idempotent) to avoid keeping it
-	// around in test helpers.
-	rawSeed, err := redeemSeed(platform.base, platform.tokens[slug])
-	if err != nil {
-		t.Fatalf("redeem seed: %v", err)
+	rawSeed, ok := platform.seeds[slug]
+	if !ok {
+		t.Fatalf("no redeemed seed cached for %s", slug)
 	}
 	if err := os.WriteFile(seedFile, rawSeed, 0o600); err != nil {
 		t.Fatalf("write seed: %v", err)

@@ -25,6 +25,10 @@ import (
 type APIError struct {
 	Status int
 	Body   string
+	// RetryAfter carries the platform's Retry-After hint (0 when absent), so
+	// callers back off as instructed instead of hammering a rate-limited
+	// endpoint with their own exponential schedule.
+	RetryAfter time.Duration
 }
 
 func (e *APIError) Error() string {
@@ -87,7 +91,11 @@ func (c *Client) do(req *http.Request, out any) (*http.Response, error) {
 		return resp, readErr
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return resp, &APIError{Status: resp.StatusCode, Body: string(body)}
+		return resp, &APIError{
+			Status:     resp.StatusCode,
+			Body:       string(body),
+			RetryAfter: retryAfterDuration(resp),
+		}
 	}
 	if out != nil && len(body) > 0 {
 		if err := json.Unmarshal(body, out); err != nil {
@@ -184,6 +192,33 @@ func (c *Client) Agents(ctx context.Context) ([]wire.Agent, error) {
 	return out.Agents, nil
 }
 
+// MarkRead marks exactly the enumerated inbound message IDs as read.
+//
+// Clearing by ID (instead of "clear the whole conversation") is what keeps a
+// message that arrives between the client's peek and this call unread, so the
+// next poll still delivers it.
+func (c *Client) MarkRead(ctx context.Context, conversationID string, messageIDs []string) (int, error) {
+	if strings.TrimSpace(conversationID) == "" || len(messageIDs) == 0 {
+		return 0, nil
+	}
+	payload, err := json.Marshal(map[string]any{"message_ids": messageIDs})
+	if err != nil {
+		return 0, err
+	}
+	path := "/api/v1/a2a/conversations/" + url.PathEscape(conversationID) + "/read"
+	req, err := c.newRequest(ctx, http.MethodPost, path, bytes.NewReader(payload))
+	if err != nil {
+		return 0, err
+	}
+	var out struct {
+		UnreadCleared int `json:"unread_cleared"`
+	}
+	if _, err := c.do(req, &out); err != nil {
+		return 0, err
+	}
+	return out.UnreadCleared, nil
+}
+
 // Health returns the platform's clock (UTC), used for skew detection.
 func (c *Client) Health(ctx context.Context) (time.Time, error) {
 	req, err := c.newRequest(ctx, http.MethodGet, "/healthz", nil)
@@ -219,8 +254,14 @@ type SendOptions struct {
 }
 
 // SendSigned signs and sends content as one message, retrying transient
-// failures. The exact same timestamp/nonce/signature is reused across retries:
-// generating a new nonce would deliver duplicates after ambiguous timeouts.
+// failures.
+//
+// The nonce is generated once and reused across attempts: the platform
+// consumes nonces, so a resend either lands exactly once or answers
+// ErrReplayedNonce (meaning an earlier attempt did land). The timestamp and
+// signature are refreshed on every attempt, because a retry chain with backoff
+// would otherwise drift past the platform's +/-300s acceptance window and be
+// rejected as stale each time.
 func (c *Client) SendSigned(
 	ctx context.Context,
 	from, to, content string,
@@ -238,13 +279,7 @@ func (c *Client) SendSigned(
 	if backoff <= 0 {
 		backoff = time.Second
 	}
-
-	ts, nonce, sig, err := signer.Sign(from, to, content)
-	if err != nil {
-		return nil, err
-	}
-	reqBody := wire.SendRequest{Content: content, Timestamp: ts, Nonce: nonce, Sig: sig}
-	payload, err := json.Marshal(reqBody)
+	nonce, err := wire.NewNonce()
 	if err != nil {
 		return nil, err
 	}
@@ -265,6 +300,14 @@ func (c *Client) SendSigned(
 			}
 		}
 		lastRetryAfter = 0
+		ts, sig, err := signer.SignWithNonce(from, to, content, nonce)
+		if err != nil {
+			return nil, err
+		}
+		payload, err := json.Marshal(wire.SendRequest{Content: content, Timestamp: ts, Nonce: nonce, Sig: sig})
+		if err != nil {
+			return nil, err
+		}
 		result, retry, retryAfter, err := c.sendOnce(ctx, to, payload)
 		if err == nil {
 			return result, nil
@@ -281,6 +324,10 @@ func (c *Client) SendSigned(
 				continue
 			case apiErr.Status >= 500:
 				continue
+			case apiErr.Status == http.StatusForbidden && isStaleSignature(apiErr.Body):
+				// The clock moved past the platform window (long backoff or a
+				// fresh NTP step); re-sign with a new timestamp and retry.
+				continue
 			default:
 				return nil, err
 			}
@@ -292,6 +339,10 @@ func (c *Client) SendSigned(
 	return nil, lastErr
 }
 
+func isStaleSignature(body string) bool {
+	return strings.Contains(strings.ToLower(body), "stale signature")
+}
+
 func (c *Client) sendOnce(ctx context.Context, to string, payload []byte) (*SendResult, bool, time.Duration, error) {
 	path := "/a2a/" + url.PathEscape(to)
 	req, err := c.newRequest(ctx, http.MethodPost, path, bytes.NewReader(payload))
@@ -299,14 +350,13 @@ func (c *Client) sendOnce(ctx context.Context, to string, payload []byte) (*Send
 		return nil, false, 0, err
 	}
 	var out wire.SendResponse
-	resp, err := c.do(req, &out)
-	if err != nil {
+	if _, err := c.do(req, &out); err != nil {
 		var apiErr *APIError
 		if errors.As(err, &apiErr) {
 			if apiErr.Status == http.StatusForbidden && strings.Contains(apiErr.Body, "replayed nonce") {
 				return nil, false, 0, ErrReplayedNonce
 			}
-			return nil, false, retryAfterDuration(resp), err
+			return nil, false, apiErr.RetryAfter, err
 		}
 		// Network errors and timeouts are retryable: the request may not have
 		// reached the platform at all.

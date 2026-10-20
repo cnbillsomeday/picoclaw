@@ -139,7 +139,7 @@ func (c *Channel) pollOnce(ctx context.Context) error {
 			}
 			continue
 		}
-		if !c.IsAllowed(peer) {
+		if !c.isPeerAllowed(peer) {
 			logger.WarnCF("a2a", "inbound rejected by allow_from", map[string]any{
 				"agent":   c.agentSlug,
 				"peer":    peer,
@@ -396,9 +396,11 @@ func (c *Channel) handleInboundResult(convID, peer, msgID string, attempt int, r
 	}
 }
 
-// clearUnreadIfSettled clears the conversation only when every unread message
-// has already been completed or dead-lettered. New messages that arrived while
-// the turn was running are left unread for the next poll.
+// clearUnreadIfSettled marks exactly the settled inbound messages as read.
+//
+// It deliberately does not use a "clear the whole conversation" call: a
+// message that arrives between the peek and the clear would be marked read
+// without ever being delivered, and the next poll would never see it again.
 func (c *Channel) clearUnreadIfSettled(ctx context.Context, convID string) bool {
 	detail, err := c.client.Conversation(ctx, convID, true)
 	if err != nil {
@@ -411,6 +413,7 @@ func (c *Channel) clearUnreadIfSettled(ctx context.Context, convID string) bool 
 		}
 		return false
 	}
+	settled := make([]string, 0, len(detail.Messages))
 	for _, msg := range detail.Messages {
 		if !c.isInboundForSelf(msg) || msg.Read {
 			continue
@@ -418,8 +421,33 @@ func (c *Channel) clearUnreadIfSettled(ctx context.Context, convID string) bool 
 		if !c.state.Seen(convID, msg.ID) {
 			return false
 		}
+		settled = append(settled, msg.ID)
 	}
-	if _, err := c.client.Conversation(ctx, convID, false); err != nil {
+	if len(settled) == 0 {
+		return true
+	}
+	cleared, err := c.client.MarkRead(ctx, convID, settled)
+	if err != nil {
+		var apiErr *client.APIError
+		if errors.As(err, &apiErr) &&
+			(apiErr.Status == http.StatusNotFound || apiErr.Status == http.StatusMethodNotAllowed) {
+			// Platform predates the targeted endpoint. Fall back to the legacy
+			// whole-conversation clear and accept its small race; the state
+			// file still stops a replay.
+			logger.WarnCF("a2a", "platform lacks per-message read marking; using legacy clear", map[string]any{
+				"agent":        c.agentSlug,
+				"conversation": convID,
+			})
+			if _, legacyErr := c.client.Conversation(ctx, convID, false); legacyErr != nil {
+				logger.WarnCF("a2a", "failed to clear unread", map[string]any{
+					"agent":        c.agentSlug,
+					"conversation": convID,
+					"error":        legacyErr.Error(),
+				})
+				return false
+			}
+			return true
+		}
 		logger.WarnCF("a2a", "failed to clear unread", map[string]any{
 			"agent":        c.agentSlug,
 			"conversation": convID,
@@ -430,6 +458,7 @@ func (c *Channel) clearUnreadIfSettled(ctx context.Context, convID string) bool 
 	logger.InfoCF("a2a", "inbound cleared", map[string]any{
 		"agent":        c.agentSlug,
 		"conversation": convID,
+		"messages":     cleared,
 	})
 	return true
 }
@@ -496,8 +525,10 @@ func (c *Channel) backoffDelay(failStreak int, err error) time.Duration {
 		case http.StatusUnauthorized, http.StatusForbidden:
 			return authBackoff
 		case http.StatusTooManyRequests:
-			// Retry-After is not exposed on APIError; fall through to the
-			// exponential delay with a floor of the normal interval.
+			if apiErr.RetryAfter > 0 && apiErr.RetryAfter <= 5*time.Minute {
+				return apiErr.RetryAfter
+			}
+			// No usable hint: fall through to the exponential delay.
 		}
 	}
 	exponent := failStreak - 1

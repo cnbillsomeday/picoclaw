@@ -8,6 +8,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -355,13 +356,32 @@ func (s *Server) handleConversation(w http.ResponseWriter, r *http.Request, slug
 		writeErr(w, http.StatusNotFound, "conversation not found")
 		return
 	}
-	conv := &Conversation{ID: id, CreatedAt: msgs[0].CreatedAt, UpdatedAt: msgs[0].CreatedAt, Last: msgs[0]}
-	conv.Other = msgs[0].From
+	// Do not trust store order: order by timestamp so YouInitiated/Other are
+	// derived from the actual first message rather than an insertion accident.
+	sorted := make([]*Message, len(msgs))
+	copy(sorted, msgs)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].CreatedAt.Before(sorted[j].CreatedAt) })
+	first := sorted[0]
+	conv := &Conversation{ID: id, CreatedAt: first.CreatedAt, UpdatedAt: first.CreatedAt, Last: first}
+	conv.Other = first.From
 	if conv.Other == slug {
-		conv.Other = msgs[0].To
+		conv.Other = first.To
 	}
-	conv.Messages = msgs
-	for _, m := range msgs {
+	if conv.Other == slug || conv.Other == "" {
+		// Self-thread or malformed first message: fall back to any counterpart.
+		for _, m := range sorted {
+			if m.From != slug {
+				conv.Other = m.From
+				break
+			}
+			if m.To != slug && m.To != "" {
+				conv.Other = m.To
+				break
+			}
+		}
+	}
+	conv.Messages = sorted
+	for _, m := range sorted {
 		if m.To == slug && !m.Read {
 			conv.Unread++
 		}
@@ -370,7 +390,7 @@ func (s *Server) handleConversation(w http.ResponseWriter, r *http.Request, slug
 		}
 		conv.Last = m
 	}
-	conv.YouInitiated = msgs[0].From == slug
+	conv.YouInitiated = first.From == slug
 	view := s.convView(slug, conv, true)
 	// In the detail response messages reflect the read state the client now has.
 	if !peek {
@@ -388,6 +408,34 @@ func (s *Server) handleConversation(w http.ResponseWriter, r *http.Request, slug
 	})
 }
 
+// POST /api/v1/a2a/conversations/{id}/read — mark exactly these messages read.
+//
+// The client must enumerate the IDs it has already settled. A blanket "mark
+// everything read" call is deliberately not offered: it races with new inbound
+// messages and can mark an undelivered message as read.
+func (s *Server) handleMarkRead(w http.ResponseWriter, r *http.Request, slug string) {
+	id := r.PathValue("id")
+	r.Body = http.MaxBytesReader(w, r.Body, maxBodyBytes)
+	var in struct {
+		MessageIDs []string `json:"message_ids"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if len(in.MessageIDs) == 0 {
+		writeErr(w, http.StatusUnprocessableEntity, "message_ids must enumerate the messages to mark read")
+		return
+	}
+	cleared, err := s.store.MarkRead(slug, id, in.MessageIDs)
+	if err != nil {
+		s.log.Printf("mark read error: %v", err)
+		writeErr(w, http.StatusInternalServerError, "storage error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"success": true, "unread_cleared": cleared})
+}
+
 func normalizeRecipient(name, domain string) string {
 	name = strings.TrimSpace(name)
 	prefix := "did:web:" + domain + ":agents:"
@@ -403,10 +451,16 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request, slug string)
 		writeErr(w, http.StatusForbidden, "recipient not in allowlist")
 		return
 	}
-	if s.cfg.Agent(name) == nil {
+	recipient := s.cfg.ResolveAgent(name)
+	if recipient == nil {
 		writeErr(w, http.StatusForbidden, "recipient not in allowlist")
 		return
 	}
+	// The peer signed the slug it typed; verify against that exact string and
+	// store under the canonical allowlist slug so casing variants share one
+	// conversation.
+	verifyTo := name
+	name = recipient.Slug
 	ct := r.Header.Get("Content-Type")
 	if ct == "" || !strings.HasPrefix(strings.ToLower(strings.TrimSpace(ct)), "application/json") {
 		writeErr(w, http.StatusUnsupportedMediaType, "Content-Type: application/json is required")
@@ -474,11 +528,13 @@ func (s *Server) handleSend(w http.ResponseWriter, r *http.Request, slug string)
 			writeErr(w, http.StatusForbidden, "replayed nonce")
 			return
 		}
-		ok, reason := s.cfg.VerifyMessage(slug, name, rawBody, in.Timestamp, in.Nonce, in.Sig)
-		if !ok && rawBody != body {
-			// 兼容「客户端先 trim 再签名」的实现：降级用 trim 后字节再验一次
-			if ok2, _ := s.cfg.VerifyMessage(slug, name, body, in.Timestamp, in.Nonce, in.Sig); ok2 {
-				ok, reason = true, "ok"
+		ok, reason := s.cfg.VerifyMessage(slug, verifyTo, rawBody, in.Timestamp, in.Nonce, in.Sig)
+		if !ok && rawBody != body && allowTrimmedSignature() {
+			// Compatibility escape hatch for peers that sign a trimmed body.
+			// Off by default: otherwise anyone can append whitespace to a
+			// captured message and keep a valid signature.
+			if ok2, _ := s.cfg.VerifyMessage(slug, verifyTo, body, in.Timestamp, in.Nonce, in.Sig); ok2 {
+				ok, reason = true, "ok-trimmed"
 				s.log.Printf("send: slug=%s verified only after trim (client signed trimmed body)", slug)
 			}
 		}

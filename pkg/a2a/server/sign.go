@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -63,7 +64,12 @@ func normalizeSignMode(v string) string {
 }
 
 // effectiveSignMode resolves the signing mode for a server instance:
-// explicit instance setting > A2A_SIGN_MODE env > warn (legacy default).
+// explicit instance setting > A2A_SIGN_MODE env > strict.
+//
+// strict is the default so the platform can never store an unsigned message
+// that every client is configured to reject: the sender gets a clear 403
+// instead of a message that silently dies on the receiver side. Legacy
+// deployments that still cannot sign must set A2A_SIGN_MODE=warn explicitly.
 func effectiveSignMode(override string) string {
 	if mode := normalizeSignMode(override); mode != "" {
 		return mode
@@ -71,7 +77,7 @@ func effectiveSignMode(override string) string {
 	if mode := normalizeSignMode(os.Getenv("A2A_SIGN_MODE")); mode != "" {
 		return mode
 	}
-	return "warn"
+	return "strict"
 }
 
 // loadAgentKeys 为每个 allowlist 成员准备密钥；缺失则生成。
@@ -277,6 +283,13 @@ func (s *Server) handleRedeem(w http.ResponseWriter, r *http.Request, slug strin
 		writeErr(w, http.StatusConflict, "no platform-held seed for this agent; register your own public key instead")
 		return
 	}
+	if rec.RedeemedAt != nil && !allowReseed() {
+		s.log.Printf("key redeem: slug=%s refused (already redeemed at %s)", slug, rec.RedeemedAt.UTC().Format(time.RFC3339))
+		writeErr(w, http.StatusConflict,
+			"seed already redeemed once; register your own public key via /a2a/keys/register, "+
+				"or restart the server with A2A_ALLOW_RESEDEEM=1 to hand out another copy")
+		return
+	}
 	first := rec.RedeemedAt == nil
 	if first {
 		now := time.Now().UTC()
@@ -367,6 +380,29 @@ func (s *Server) handleRegisterKey(w http.ResponseWriter, r *http.Request, slug 
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"success": true, "public_key": norm, "extra_public_keys": rec.ExtraPubs,
 		"platform_seed_retired": retired, "has_platform_seed": s.cfg.agentKey[slug].Seed != ""})
+}
+
+// allowReseed re-enables handing out the platform-held seed more than once.
+// Off by default: a leaked bearer token must not be able to pull the private
+// key forever.
+func allowReseed() bool {
+	v := strings.TrimSpace(os.Getenv("A2A_ALLOW_RESEDEEM"))
+	if v == "" {
+		return false
+	}
+	ok, err := strconv.ParseBool(v)
+	return err == nil && ok
+}
+
+// allowTrimmedSignature re-enables verifying a signature computed over the
+// trimmed message body.
+func allowTrimmedSignature() bool {
+	v := strings.TrimSpace(os.Getenv("A2A_ALLOW_TRIMMED_SIG"))
+	if v == "" {
+		return false
+	}
+	ok, err := strconv.ParseBool(v)
+	return err == nil && ok
 }
 
 // retirePlatformSeed 删除平台托管 seed，只保留 peer 自持公钥。

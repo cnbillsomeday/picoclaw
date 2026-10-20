@@ -92,6 +92,16 @@ func (c *Channel) publishOwnerNotification(
 		Content: content,
 	})
 	if err != nil {
+		// Roll the at-most-once claim back so a later turn/retry can still
+		// alert the owner. This trades a rare duplicate for not losing an
+		// alert; the alternative (keep the claim) silently drops the message.
+		c.state.UnmarkNotified(convID, msgID)
+		if saveErr := c.state.Save(); saveErr != nil {
+			logger.WarnCF("a2a", "failed to roll back owner notification state", map[string]any{
+				"agent": c.agentSlug,
+				"error": saveErr.Error(),
+			})
+		}
 		logger.WarnCF("a2a", "failed to publish owner notification", map[string]any{
 			"agent":        c.agentSlug,
 			"conversation": convID,

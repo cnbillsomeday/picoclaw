@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"sync"
 	"time"
 )
@@ -274,6 +275,45 @@ func (s *Store) Conversation(agent, id string, peek bool) ([]*Message, int, erro
 		}
 	}
 	return out, cleared, nil
+}
+
+// MarkRead marks only the enumerated inbound message IDs as read for the
+// agent. Messages the caller did not enumerate are left untouched, so a
+// message that arrives between the client's peek and this call stays unread
+// and is delivered on the next poll instead of being silently swallowed.
+func (s *Store) MarkRead(agent, id string, msgIDs []string) (int, error) {
+	if agent == "" || id == "" || len(msgIDs) == 0 {
+		return 0, nil
+	}
+	want := make(map[string]struct{}, len(msgIDs))
+	for _, mid := range msgIDs {
+		if mid = strings.TrimSpace(mid); mid != "" {
+			want[mid] = struct{}{}
+		}
+	}
+	if len(want) == 0 {
+		return 0, nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	cleared := 0
+	for _, m := range s.messages {
+		if m.ConvID != id || m.To != agent || m.Read {
+			continue
+		}
+		if _, ok := want[m.ID]; !ok {
+			continue
+		}
+		m.Read = true
+		cleared++
+	}
+	if cleared == 0 {
+		return 0, nil
+	}
+	if err := s.saveLocked(); err != nil {
+		return 0, err
+	}
+	return cleared, nil
 }
 
 func (s *Store) Stats() (messages int, oldest, newest time.Time) {
