@@ -57,10 +57,10 @@ func TestA2ASettingsSignCanBeDisabled(t *testing.T) {
 
 func TestA2AServerConfigRoundTrip(t *testing.T) {
 	var cfg Config
-	if err := json.Unmarshal([]byte(`{"version":3,"a2a_server":{"enabled":true,"listen":"127.0.0.1:21220","data_dir":"/root/a2a","domain":"a2a.example","retention_hours":24,"sign_mode":"strict","allow_default_agents":false}}`), &cfg); err != nil {
+	if err := json.Unmarshal([]byte(`{"version":3,"a2a_server":{"enabled":true,"listen":"127.0.0.1:21220","data_dir":"/var/lib/picoclaw/a2a","domain":"a2a.example","retention_hours":24,"sign_mode":"strict","allow_default_agents":false}}`), &cfg); err != nil {
 		t.Fatal(err)
 	}
-	if !cfg.A2AServer.Enabled || cfg.A2AServer.DataDir != "/root/a2a" || cfg.A2AServer.SignMode != "strict" {
+	if !cfg.A2AServer.Enabled || cfg.A2AServer.DataDir != "/var/lib/picoclaw/a2a" || cfg.A2AServer.SignMode != "strict" {
 		t.Fatalf("a2a_server = %+v", cfg.A2AServer)
 	}
 	if cfg.A2AServer.AllowDefaultAgents {

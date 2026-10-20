@@ -25,7 +25,7 @@ type wireCase struct {
 	Name            string            `json:"name"`
 	Method          string            `json:"method"`
 	Path            string            `json:"path"`
-	Token           string            `json:"token,omitempty"` // fei | vu | empty
+	Token           string            `json:"token,omitempty"` // alpha | beta | empty
 	ContentType     string            `json:"content_type,omitempty"`
 	Body            string            `json:"body,omitempty"`
 	IfNoneMatchFrom string            `json:"if_none_match_from,omitempty"`
@@ -41,46 +41,46 @@ type wireGoldenFile struct {
 
 func wireCases() []wireCase {
 	tooLong := strings.Repeat("x", 8001)
-	conv := "c_c120d1e91ce7840f"
+	conv := "c_4163834372780d81"
 	return []wireCase{
 		{Name: "healthz", Method: "GET", Path: "/healthz"},
 		{Name: "root", Method: "GET", Path: "/"},
 		{Name: "agents", Method: "GET", Path: "/api/v1/agents"},
-		{Name: "agent-profile", Method: "GET", Path: "/api/v1/agents/fei"},
-		{Name: "u-profile", Method: "GET", Path: "/u/fei"},
+		{Name: "agent-profile", Method: "GET", Path: "/api/v1/agents/alpha"},
+		{Name: "u-profile", Method: "GET", Path: "/u/alpha"},
 		{Name: "domain-did", Method: "GET", Path: "/.well-known/did.json"},
-		{Name: "agent-did", Method: "GET", Path: "/agents/fei/did.json"},
-		{Name: "agent-card", Method: "GET", Path: "/agents/fei/agent-card.json"},
+		{Name: "agent-did", Method: "GET", Path: "/agents/alpha/did.json"},
+		{Name: "agent-card", Method: "GET", Path: "/agents/alpha/agent-card.json"},
 		{Name: "heartbeat-md", Method: "GET", Path: "/heartbeat.md"},
 		{Name: "skill-md", Method: "GET", Path: "/skill.md"},
 		{Name: "style-md", Method: "GET", Path: "/style-guide.md"},
 		{Name: "sign-py", Method: "GET", Path: "/sign.py"},
 		{Name: "sign-py-hash", Method: "GET", Path: "/sign.py.sha256"},
 		{Name: "signing-md", Method: "GET", Path: "/signing.md"},
-		{Name: "home-vu", Method: "GET", Path: "/api/v1/home", Token: "vu"},
-		{Name: "home-vu-304", Method: "GET", Path: "/api/v1/home", Token: "vu", IfNoneMatchFrom: "home-vu"},
-		{Name: "me-vu", Method: "GET", Path: "/api/v1/me", Token: "vu"},
-		{Name: "presence", Method: "GET", Path: "/api/v1/presence", Token: "vu"},
-		{Name: "conversations-vu", Method: "GET", Path: "/api/v1/a2a/conversations", Token: "vu"},
-		{Name: "conversation-peek", Method: "GET", Path: "/api/v1/a2a/conversations/" + conv + "?peek=1", Token: "vu"},
-		{Name: "home-vu-after-peek", Method: "GET", Path: "/api/v1/home", Token: "vu"},
-		{Name: "conversation-clear", Method: "GET", Path: "/api/v1/a2a/conversations/" + conv, Token: "vu"},
-		{Name: "home-vu-after-clear", Method: "GET", Path: "/api/v1/home", Token: "vu"},
-		{Name: "home-fei", Method: "GET", Path: "/api/v1/home", Token: "fei"},
-		{Name: "stats", Method: "GET", Path: "/api/v1/stats", Token: "fei"},
+		{Name: "home-beta", Method: "GET", Path: "/api/v1/home", Token: "beta"},
+		{Name: "home-beta-304", Method: "GET", Path: "/api/v1/home", Token: "beta", IfNoneMatchFrom: "home-beta"},
+		{Name: "me-beta", Method: "GET", Path: "/api/v1/me", Token: "beta"},
+		{Name: "presence", Method: "GET", Path: "/api/v1/presence", Token: "beta"},
+		{Name: "conversations-beta", Method: "GET", Path: "/api/v1/a2a/conversations", Token: "beta"},
+		{Name: "conversation-peek", Method: "GET", Path: "/api/v1/a2a/conversations/" + conv + "?peek=1", Token: "beta"},
+		{Name: "home-beta-after-peek", Method: "GET", Path: "/api/v1/home", Token: "beta"},
+		{Name: "conversation-clear", Method: "GET", Path: "/api/v1/a2a/conversations/" + conv, Token: "beta"},
+		{Name: "home-beta-after-clear", Method: "GET", Path: "/api/v1/home", Token: "beta"},
+		{Name: "home-alpha", Method: "GET", Path: "/api/v1/home", Token: "alpha"},
+		{Name: "stats", Method: "GET", Path: "/api/v1/stats", Token: "alpha"},
 		{Name: "auth-missing", Method: "GET", Path: "/api/v1/home"},
-		{Name: "send-unsigned", Method: "POST", Path: "/a2a/vu", Token: "fei", ContentType: "application/json", Body: `{"content":"unsigned"}`},
-		{Name: "send-unknown", Method: "POST", Path: "/a2a/nobody", Token: "fei", ContentType: "application/json", Body: `{"content":"x"}`},
-		{Name: "send-wrong-content-type", Method: "POST", Path: "/a2a/vu", Token: "fei", ContentType: "text/plain", Body: `{"content":"x"}`},
-		{Name: "send-empty", Method: "POST", Path: "/a2a/vu", Token: "fei", ContentType: "application/json", Body: `{}`},
-		{Name: "send-too-long", Method: "POST", Path: "/a2a/vu", Token: "fei", ContentType: "application/json", Body: fmt.Sprintf(`{"content":%q}`, tooLong)},
+		{Name: "send-unsigned", Method: "POST", Path: "/a2a/beta", Token: "alpha", ContentType: "application/json", Body: `{"content":"unsigned"}`},
+		{Name: "send-unknown", Method: "POST", Path: "/a2a/nobody", Token: "alpha", ContentType: "application/json", Body: `{"content":"x"}`},
+		{Name: "send-wrong-content-type", Method: "POST", Path: "/a2a/beta", Token: "alpha", ContentType: "text/plain", Body: `{"content":"x"}`},
+		{Name: "send-empty", Method: "POST", Path: "/a2a/beta", Token: "alpha", ContentType: "application/json", Body: `{}`},
+		{Name: "send-too-long", Method: "POST", Path: "/a2a/beta", Token: "alpha", ContentType: "application/json", Body: fmt.Sprintf(`{"content":%q}`, tooLong)},
 		{Name: "not-found", Method: "GET", Path: "/nope"},
 	}
 }
 
 var goldenTokens = map[string]string{
-	"fei": "fei-token-fixture",
-	"vu":  "vu-token-fixture",
+	"alpha": "alpha-token-fixture",
+	"beta":  "beta-token-fixture",
 }
 
 var goldenHeaders = []string{
