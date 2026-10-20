@@ -97,7 +97,13 @@ func redeemSeed(base, token string) ([]byte, error) {
 
 func boolPtr(v bool) *bool { return &v }
 
-func newTestChannel(t *testing.T, platform *testPlatform, slug string, dryRun bool) (*Channel, *bus.MessageBus) {
+func newTestChannel(
+	t *testing.T,
+	platform *testPlatform,
+	slug string,
+	dryRun bool,
+	mutate ...func(*config.A2ASettings),
+) (*Channel, *bus.MessageBus) {
 	t.Helper()
 	seedFile := filepath.Join(t.TempDir(), "ed25519.seed")
 	// Write the raw seed again by redeeming (idempotent) to avoid keeping it
@@ -129,6 +135,9 @@ func newTestChannel(t *testing.T, platform *testPlatform, slug string, dryRun bo
 		PeersRefreshSec: 30,
 		StateFile:       stateFile,
 		DryRun:          dryRun,
+	}
+	for _, fn := range mutate {
+		fn(settings)
 	}
 	mb := bus.NewMessageBus()
 	ch, err := NewA2AChannel(bc, settings, mb)
@@ -177,8 +186,8 @@ func TestA2AChannelInboundOutbound(t *testing.T) {
 	case <-time.After(10 * time.Second):
 		t.Fatal("timed out waiting for inbound message")
 	}
-	if inbound.Content != "hello beta" {
-		t.Fatalf("inbound content = %q, want %q", inbound.Content, "hello beta")
+	if !strings.HasPrefix(inbound.Content, "【A2A 私信】") || !strings.Contains(inbound.Content, "hello beta") {
+		t.Fatalf("inbound content missing reply policy or body: %q", inbound.Content)
 	}
 	if inbound.ChatID != "alpha" {
 		t.Fatalf("inbound chat id = %q, want alpha", inbound.ChatID)

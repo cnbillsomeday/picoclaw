@@ -29,6 +29,9 @@ type stateData struct {
 	LastTickAt string              `json:"last_tick_at,omitempty"`
 	LastOKAt   string              `json:"last_ok_at,omitempty"`
 	FailStreak int                 `json:"fail_streak,omitempty"`
+	// Outbound tracks recent automatic outbound timestamps per peer (unix
+	// seconds) for the per-conversation rate limiter.
+	Outbound map[string][]int64 `json:"outbound,omitempty"`
 }
 
 type channelState struct {
@@ -65,6 +68,9 @@ func loadChannelState(path, agent string) (*channelState, error) {
 	}
 	if data.LastSeen == nil {
 		data.LastSeen = map[string][]string{}
+	}
+	if data.Outbound == nil {
+		data.Outbound = map[string][]int64{}
 	}
 	st.data = data
 	st.data.Agent = agent
@@ -115,6 +121,49 @@ func (s *channelState) pruneLocked() {
 	for _, k := range keys[:len(keys)-maxTrackedConvs] {
 		delete(s.data.LastSeen, k)
 	}
+}
+
+// AllowOutbound reports whether the peer has room in the sliding window.
+func (s *channelState) AllowOutbound(peer string, now time.Time, window time.Duration, limit int) bool {
+	if limit <= 0 || window <= 0 {
+		return true
+	}
+	cutoff := now.Add(-window).Unix()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	times := s.pruneOutboundLocked(peer, cutoff)
+	return len(times) < limit
+}
+
+// RecordOutbound records a successful automatic outbound message.
+func (s *channelState) RecordOutbound(peer string, now time.Time, window time.Duration) {
+	if window <= 0 {
+		return
+	}
+	cutoff := now.Add(-window).Unix()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.data.Outbound == nil {
+		s.data.Outbound = map[string][]int64{}
+	}
+	times := s.pruneOutboundLocked(peer, cutoff)
+	s.data.Outbound[peer] = append(times, now.Unix())
+}
+
+func (s *channelState) pruneOutboundLocked(peer string, cutoff int64) []int64 {
+	times := s.data.Outbound[peer]
+	kept := times[:0]
+	for _, ts := range times {
+		if ts >= cutoff {
+			kept = append(kept, ts)
+		}
+	}
+	if len(kept) == 0 {
+		delete(s.data.Outbound, peer)
+		return nil
+	}
+	s.data.Outbound[peer] = kept
+	return kept
 }
 
 func (s *channelState) ETag() string {

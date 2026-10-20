@@ -5,6 +5,7 @@ package config
 import (
 	"encoding/json"
 	"testing"
+	"time"
 )
 
 func TestA2AChannelDefaults(t *testing.T) {
@@ -65,5 +66,38 @@ func TestA2AServerConfigRoundTrip(t *testing.T) {
 	}
 	if cfg.A2AServer.AllowDefaultAgents {
 		t.Fatal("allow_default_agents must default to false")
+	}
+}
+
+func TestA2ALoopGuardDefaults(t *testing.T) {
+	var settings A2ASettings
+	if got := settings.GetReplyWindow(); got != 10*time.Minute {
+		t.Fatalf("default reply window = %s, want 10m", got)
+	}
+	if got := settings.GetMaxRepliesPerWindow(); got != 3 {
+		t.Fatalf("default max replies = %d, want 3", got)
+	}
+}
+
+func TestA2ALoopGuardExplicitValues(t *testing.T) {
+	window := 120
+	maxReplies := 5
+	settings := A2ASettings{ReplyWindowSec: &window, MaxRepliesPerWindow: &maxReplies}
+	if got := settings.GetReplyWindow(); got != 2*time.Minute {
+		t.Fatalf("reply window = %s, want 2m", got)
+	}
+	if got := settings.GetMaxRepliesPerWindow(); got != 5 {
+		t.Fatalf("max replies = %d, want 5", got)
+	}
+
+	zero := 0
+	disabled := A2ASettings{MaxRepliesPerWindow: &zero}
+	if got := disabled.GetMaxRepliesPerWindow(); got != 0 {
+		t.Fatalf("explicit zero max replies = %d, want 0 (disabled)", got)
+	}
+	negative := -1
+	clamped := A2ASettings{MaxRepliesPerWindow: &negative}
+	if got := clamped.GetMaxRepliesPerWindow(); got != 0 {
+		t.Fatalf("negative max replies = %d, want 0", got)
 	}
 }

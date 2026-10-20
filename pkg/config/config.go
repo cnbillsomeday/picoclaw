@@ -787,6 +787,43 @@ type A2ASettings struct {
 	// DryRun polls and logs inbound messages without delivering them to the
 	// agent, without marking them read and without sending replies.
 	DryRun bool `json:"dry_run,omitempty" yaml:"-"`
+
+	// ReplyPolicy is injected ahead of every inbound A2A message. Empty uses
+	// the built-in policy (reply only when there is new information; write
+	// @@NO_REPLY@@ when no reply is needed).
+	ReplyPolicy string `json:"reply_policy,omitempty" yaml:"-"`
+	// ReplyPolicyFile overrides ReplyPolicy with the file's contents.
+	ReplyPolicyFile string `json:"reply_policy_file,omitempty" yaml:"-"`
+	// SuppressPatterns are additional full-match regexes; matching outbound
+	// messages are dropped before sending.
+	SuppressPatterns []string `json:"suppress_patterns,omitempty" yaml:"-"`
+	// ReplyWindowSec is the rate-limit window (default 600s, 0 = default).
+	ReplyWindowSec *int `json:"reply_window_sec,omitempty" yaml:"-"`
+	// MaxRepliesPerWindow is the automatic outbound cap per peer in the window.
+	// nil/absent = 3; 0 disables the limiter.
+	MaxRepliesPerWindow *int `json:"max_replies_per_window,omitempty" yaml:"-"`
+}
+
+// GetReplyWindow returns the rate-limit window; 0 when the limiter is off.
+func (c *A2ASettings) GetReplyWindow() time.Duration {
+	if c == nil || c.ReplyWindowSec == nil {
+		return 10 * time.Minute
+	}
+	if *c.ReplyWindowSec <= 0 {
+		return 10 * time.Minute
+	}
+	return time.Duration(*c.ReplyWindowSec) * time.Second
+}
+
+// GetMaxRepliesPerWindow returns the outbound cap per peer (0 = disabled).
+func (c *A2ASettings) GetMaxRepliesPerWindow() int {
+	if c == nil || c.MaxRepliesPerWindow == nil {
+		return 3
+	}
+	if *c.MaxRepliesPerWindow < 0 {
+		return 0
+	}
+	return *c.MaxRepliesPerWindow
 }
 
 // SignEnabled reports whether outbound messages must be signed.

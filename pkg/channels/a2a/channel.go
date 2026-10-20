@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"sync"
 	"time"
@@ -37,7 +38,24 @@ const (
 	defaultKeyFile       = "~/.a2a/ed25519.seed"
 	sendMaxAttempts      = 5
 	sendBaseBackoff      = time.Second
+
+	noReplySentinel = "@@NO_REPLY@@"
+
+	// defaultAckPattern matches pure acknowledgements/closures. It is anchored
+	// so only an entire short message is suppressed.
+	defaultAckPattern = `(?i)^[（(\s]*(收到|好的|好|嗯|ok|明白|了解|已收到|已闭环|不回复|不回|沉默即确认|谢谢|多谢|再见|晚安)[）)\s。！!，,.]*$`
+
+	defaultReplyPolicy = "回复规矩：有新信息量才回（提问/求助/正事/表态）；客套、确认、道别、已闭环不回，沉默即确认。拿不准 → 不回。\n" +
+		"不需要回复时，最终输出只写 " + noReplySentinel + "，不要写任何其他内容（不要写“收到”“不回复”“已闭环”）。\n" +
+		"不要调用旧的 clawdchat/heartbeat 脚本；收发由频道负责。\n" +
+		"不要向对方发送工具执行进度、命令输出、内部核对过程。\n" +
+		"写完即止：不要发确认句、不要复述、不要再次核对。"
 )
+
+// closureMarkers catch short compound closures such as
+// "（不回复，已闭环。）" and "收到，测试确认完毕。收工。" that the anchored
+// pattern alone would miss.
+var closureMarkers = []string{"不回复", "已闭环", "沉默即确认", "已回复", "测试确认", "收工", "不继续"}
 
 // Channel is the picoclaw A2A client channel.
 type Channel struct {
@@ -55,6 +73,13 @@ type Channel struct {
 	maxChars     int
 	dryRun       bool
 	signEnabled  bool
+
+	replyPolicy   string
+	ackFilter     *regexp.Regexp
+	customFilters []*regexp.Regexp
+	replyWindow   time.Duration
+	maxReplies    int
+	now           func() time.Time
 
 	ctx    context.Context
 	cancel context.CancelFunc
@@ -151,21 +176,57 @@ func NewA2AChannel(bc *config.Channel, settings *config.A2ASettings, b *bus.Mess
 		state = &channelState{path: statePath, data: stateData{Version: stateVersion, Agent: agentSlug}}
 	}
 
+	ackFilter, err := regexp.Compile(defaultAckPattern)
+	if err != nil {
+		return nil, fmt.Errorf("a2a: compile ack filter: %w", err)
+	}
+	customFilters := make([]*regexp.Regexp, 0, len(settings.SuppressPatterns))
+	for _, pattern := range settings.SuppressPatterns {
+		pattern = strings.TrimSpace(pattern)
+		if pattern == "" {
+			continue
+		}
+		compiled, err := regexp.Compile(pattern)
+		if err != nil {
+			return nil, fmt.Errorf("a2a: invalid suppress pattern %q: %w", pattern, err)
+		}
+		customFilters = append(customFilters, compiled)
+	}
+	replyPolicy := strings.TrimSpace(settings.ReplyPolicy)
+	if file := strings.TrimSpace(settings.ReplyPolicyFile); file != "" {
+		data, err := os.ReadFile(expandHome(file))
+		if err != nil {
+			return nil, fmt.Errorf("a2a: read reply_policy_file: %w", err)
+		}
+		replyPolicy = strings.TrimSpace(string(data))
+	}
+	if replyPolicy == "" {
+		replyPolicy = defaultReplyPolicy
+	}
+	replyWindow := settings.GetReplyWindow()
+	maxReplies := settings.GetMaxRepliesPerWindow()
+
 	ch := &Channel{
-		BaseChannel:  channels.NewBaseChannel("a2a", settings, b, allow),
-		settings:     settings,
-		client:       client.New(baseURL, token, timeout),
-		signer:       signer,
-		state:        state,
-		agentSlug:    agentSlug,
-		pollInterval: poll,
-		peersRefresh: refresh,
-		cooldown:     time.Duration(settings.CooldownSec) * time.Second,
-		maxChars:     maxChars,
-		dryRun:       settings.DryRun,
-		signEnabled:  signEnabled,
-		peers:        map[string]wire.Agent{},
-		drySeen:      map[string]struct{}{},
+		BaseChannel:   channels.NewBaseChannel("a2a", settings, b, allow),
+		settings:      settings,
+		client:        client.New(baseURL, token, timeout),
+		signer:        signer,
+		state:         state,
+		agentSlug:     agentSlug,
+		pollInterval:  poll,
+		peersRefresh:  refresh,
+		cooldown:      time.Duration(settings.CooldownSec) * time.Second,
+		maxChars:      maxChars,
+		dryRun:        settings.DryRun,
+		signEnabled:   signEnabled,
+		replyPolicy:   replyPolicy,
+		ackFilter:     ackFilter,
+		customFilters: customFilters,
+		replyWindow:   replyWindow,
+		maxReplies:    maxReplies,
+		now:           time.Now,
+		peers:         map[string]wire.Agent{},
+		drySeen:       map[string]struct{}{},
 	}
 	ch.SetOwner(ch)
 	return ch, nil
@@ -223,7 +284,33 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) ([]string, 
 		return nil, fmt.Errorf("%w: empty peer chat id", channels.ErrSendFailed)
 	}
 	content := msg.Content
-	if strings.TrimSpace(content) == "" {
+	trimmed := strings.TrimSpace(content)
+	if isToolFeedbackMessage(msg) {
+		logger.DebugCF("a2a", "reply_suppressed", map[string]any{
+			"reason": "tool_feedback",
+			"agent":  c.agentSlug,
+			"peer":   peer,
+		})
+		return nil, nil
+	}
+	if trimmed == "" {
+		return nil, nil
+	}
+	if trimmed == noReplySentinel {
+		logger.DebugCF("a2a", "reply_suppressed", map[string]any{
+			"reason": "no_reply_sentinel",
+			"agent":  c.agentSlug,
+			"peer":   peer,
+		})
+		return nil, nil
+	}
+	if c.isAckOrClosure(trimmed) {
+		logger.InfoCF("a2a", "reply_suppressed", map[string]any{
+			"reason": "ack_filter",
+			"agent":  c.agentSlug,
+			"peer":   peer,
+			"text":   previewText(trimmed, 40),
+		})
 		return nil, nil
 	}
 	if c.dryRun {
@@ -231,6 +318,18 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) ([]string, 
 			"agent": c.agentSlug,
 			"peer":  peer,
 			"chars": len([]rune(content)),
+		})
+		return nil, nil
+	}
+	if c.maxReplies > 0 && c.replyWindow > 0 &&
+		!c.state.AllowOutbound(peer, c.currentTime(), c.replyWindow, c.maxReplies) {
+		logger.InfoCF("a2a", "reply_suppressed", map[string]any{
+			"reason": "rate_limit",
+			"agent":  c.agentSlug,
+			"peer":   peer,
+			"window": c.replyWindow.String(),
+			"cap":    c.maxReplies,
+			"text":   previewText(trimmed, 40),
 		})
 		return nil, nil
 	}
@@ -277,7 +376,65 @@ func (c *Channel) Send(ctx context.Context, msg bus.OutboundMessage) ([]string, 
 			"sig_state":    result.SigState,
 		})
 	}
+	if len(ids) > 0 && c.maxReplies > 0 && c.replyWindow > 0 {
+		c.state.RecordOutbound(peer, c.currentTime(), c.replyWindow)
+		if err := c.state.Save(); err != nil {
+			logger.WarnCF("a2a", "failed to save rate-limit state", map[string]any{"error": err.Error()})
+		}
+	}
 	return ids, nil
+}
+
+func (c *Channel) currentTime() time.Time {
+	if c.now == nil {
+		return time.Now()
+	}
+	return c.now()
+}
+
+func (c *Channel) isAckOrClosure(text string) bool {
+	if c.ackFilter != nil && c.ackFilter.MatchString(text) {
+		return true
+	}
+	for _, filter := range c.customFilters {
+		if filter.MatchString(text) {
+			return true
+		}
+	}
+	// Short compound closure messages are the ones that caused the incident;
+	// treat any short message carrying a closure marker as an acknowledgement.
+	if len([]rune(text)) <= 40 {
+		for _, marker := range closureMarkers {
+			if strings.Contains(text, marker) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func isToolFeedbackMessage(msg bus.OutboundMessage) bool {
+	kind := ""
+	if msg.Context.Raw != nil {
+		kind = strings.TrimSpace(msg.Context.Raw["message_kind"])
+	}
+	return strings.EqualFold(kind, "tool_feedback")
+}
+
+func previewText(text string, max int) string {
+	runes := []rune(strings.TrimSpace(text))
+	if len(runes) <= max {
+		return string(runes)
+	}
+	return string(runes[:max]) + "…"
+}
+
+func (c *Channel) applyReplyPolicy(body string) string {
+	policy := strings.TrimSpace(c.replyPolicy)
+	if policy == "" {
+		return body
+	}
+	return "【A2A 私信】\n" + policy + "\n\n" + body
 }
 
 func (c *Channel) ensureClock(ctx context.Context, strict bool) error {

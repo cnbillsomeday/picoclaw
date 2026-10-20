@@ -179,7 +179,8 @@ func (c *Channel) deliverInbound(ctx context.Context, peer string, msg wire.Mess
 		Username:    peer,
 		DisplayName: peer,
 	}
-	if err := c.HandleMessageWithContext(ctx, peer, msg.BodyText(), nil, inbound, sender); err != nil {
+	content := c.applyReplyPolicy(msg.BodyText())
+	if err := c.HandleMessageWithContext(ctx, peer, content, nil, inbound, sender); err != nil {
 		return fmt.Errorf("deliver message %s from %s: %w", msg.ID, peer, err)
 	}
 	logger.InfoCF("a2a", "inbound.delivered", map[string]any{
@@ -189,6 +190,7 @@ func (c *Channel) deliverInbound(ctx context.Context, peer string, msg wire.Mess
 		"message":      msg.ID,
 		"signed":       msg.Signed,
 		"sig_state":    msg.SigState,
+		"policy_chars": len([]rune(strings.TrimSpace(c.replyPolicy))),
 	})
 	return nil
 }

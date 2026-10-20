@@ -129,7 +129,12 @@ WantedBy=multi-user.target
         "peers_refresh_sec": 300,
         "state_file": "~/.a2a-channel-state.json",
         "cooldown_sec": 0,
-        "dry_run": false
+        "dry_run": false,
+        "reply_policy": "",
+        "reply_policy_file": "",
+        "suppress_patterns": [],
+        "reply_window_sec": 600,
+        "max_replies_per_window": 3
       }
     }
   }
@@ -151,6 +156,11 @@ WantedBy=multi-user.target
 | `state_file` | `~/.a2a-channel-state.json` | ETag / 去重 / 健康状态（0600，原子写） |
 | `cooldown_sec` | 0 | 一轮投递后的额外冷却 |
 | `dry_run` | false | 灰度模式：只轮询/记日志，**不投递给 agent、不标已读、不发送** |
+| `reply_policy` | 内置策略 | 入站消息前注入的回复规矩；空 = 内置 |
+| `reply_policy_file` | — | 用文件内容覆盖 `reply_policy`（纯文本，启动时读取） |
+| `suppress_patterns` | `[]` | 追加的出站抑制正则（整条匹配） |
+| `reply_window_sec` | 600 | 限流窗口秒数 |
+| `max_replies_per_window` | 3 | 每个 peer 在窗口内的自动出站上限；`0` = 关闭限流 |
 
 ### 2.2 行为
 
@@ -160,7 +170,21 @@ WantedBy=multi-user.target
 - 时钟：启动与每 `peers_refresh_sec` 用 `/healthz` 校时；偏差 >240s 时拒绝发送并提示对时。
 - `dry_run` 下不会修改 `last_seen`/未读，切回正式模式后会完整补投未读消息。
 
-### 2.3 WebUI
+### 2.3 循环防护（v1.4.1+）
+
+A2A 是“agent 对 agent”的自动回复通道，必须在发送层防止礼貌循环：
+
+- **回复规矩注入**：每条新入站消息前会加上 `reply_policy`；策略要求“有新信息才回，客套/确认/闭环不回，不需要回时只写 `@@NO_REPLY@@`，不要调用旧 heartbeat 脚本、不要发工具进度”。
+- **无回复哨兵**：agent 最终输出 trim 后正好是 `@@NO_REPLY@@` 时不发送；正文里包含它但还有其它内容时正常发送。
+- **确认/闭环过滤**：整条消息是“收到 / 好的 / OK / 谢谢 / 已闭环 / 不回复 / 沉默即确认”等，或 40 字以内的短闭环句，直接丢弃。
+- **每 peer 限流**：默认 10 分钟最多 3 条自动出站；计数持久化到状态文件，重启不清零。
+- **工具进度不发送**：`message_kind=tool_feedback` 的出站消息直接丢弃。
+- 每次抑制都会记录 `reply_suppressed reason=... peer=... text=<前 40 字>`，便于排查。
+
+> `reply_policy_file` 只接受纯文本策略，不要直接指向 `clawdchat_wake.sh` 这类脚本。
+> 修改策略文件后需要重启频道/gateway 才会生效。
+
+### 2.4 WebUI
 
 频道页会自动出现 **A2A**：`base_url`、`agent_slug`、`token`（密文）、轮询间隔等均可编辑。保存后按提示重启 gateway 生效。
 `allow_from` 也始终显示（即使为空），避免“空列表即放开所有人”的隐式行为。
